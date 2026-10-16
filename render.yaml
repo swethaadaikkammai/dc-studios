@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: vit-dance-booking-api
+    env: python
+    region: singapore
+    plan: starter
+    rootDir: backend
+    buildCommand: |
+      pip install -r requirements.txt
+      alembic upgrade head
+      python scripts/seed.py
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vit-dance-postgres
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: CORS_ORIGINS
+        value: '["https://vit-dance-booking.vercel.app"]'
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: COOKIE_SAMESITE
+        value: "lax"
+      - key: TIMEZONE
+        value: "Asia/Kolkata"
+      - key: ADVANCE_BOOKING_HOURS
+        value: "72"
+
+databases:
+  - name: vit-dance-postgres
+    region: singapore
+    plan: starter
+    databaseName: vit_dance_booking
+    user: postgres

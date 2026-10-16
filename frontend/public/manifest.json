@@ -1,0 +1,29 @@
+{
+  "short_name": "DC Studios",
+  "name": "DC Studios",
+  "id": "/?source=pwa",
+  "description": "Exclusive dance studio reservation and slot management system for VIT Dance Club.",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/?source=pwa",
+  "background_color": "#0f172a",
+  "theme_color": "#356AE6",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "categories": ["entertainment", "productivity", "utilities"],
+  "lang": "en",
+  "dir": "ltr"
+}
