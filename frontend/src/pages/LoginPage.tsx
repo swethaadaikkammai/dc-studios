@@ -2,16 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
-import {
-  Music,
-  Lock,
-  User as UserIcon,
-  Eye,
-  EyeOff,
-  Sparkles,
-  ShieldCheck,
-  AlertCircle
-} from 'lucide-react';
+import { Lock, User as UserIcon, Eye, EyeOff, AlertCircle } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
@@ -43,43 +34,49 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickDemoLogin = (user: string, pass: string) => {
-    setUsernameOrEmail(user);
-    setPassword(pass);
-    setError(null);
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center px-4">
-        {/* Brand Logo */}
-        <div className="inline-flex items-center justify-center w-20 h-20 rounded-full overflow-hidden shadow-xl shadow-blue-500/20 mb-4 border-2 border-slate-700/80 mx-auto">
-          <img src="/logo.png" alt="DC Studios Logo" className="w-full h-full object-cover" />
-        </div>
-        <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
-          DC Studios
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Studio Reservation Portal • PRP201 & PRP202
-        </p>
-      </div>
+    <div className="relative min-h-screen w-full flex items-center justify-center p-4">
+      {/* Studio Background with subtle dark overlay */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat filter brightness-50"
+        style={{ backgroundImage: `url('/studio_bg.jpg')` }}
+      />
+      <div className="absolute inset-0 bg-slate-950/75" />
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
-        <div className="bg-white py-8 px-6 sm:px-10 shadow-xl shadow-slate-200/50 rounded-3xl border border-slate-100">
-          <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Main Login Card */}
+      <div className="relative w-full max-w-md z-10">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 sm:p-10 shadow-2xl">
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="inline-block w-20 h-20 rounded-full overflow-hidden mb-4 shadow-xl shadow-black/50">
+              <img src="/logo.png" alt="DC Studios Logo" className="w-full h-full object-cover rounded-full" />
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-tight">
+              DC Studios
+            </h1>
+            <p className="text-sm text-slate-400 mt-1">
+              Studio Reservation Portal
+            </p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              VIT Vellore • PRP201 & PRP202
+            </p>
+          </div>
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-start gap-2.5">
-                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
             )}
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Username or Approved Email
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                Username or Email
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <UserIcon className="w-4 h-4" />
                 </div>
                 <input
@@ -88,17 +85,17 @@ export const LoginPage: React.FC = () => {
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
                   placeholder="admin or member@vitdance.ac.in"
-                  className="w-full pl-10 pr-3.5 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#356AE6] focus:ring-1 focus:ring-[#356AE6] transition-colors"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
                   <Lock className="w-4 h-4" />
                 </div>
                 <input
@@ -107,12 +104,12 @@ export const LoginPage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  className="w-full pl-9 pr-10 py-2.5 bg-slate-800/80 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#356AE6] focus:ring-1 focus:ring-[#356AE6] transition-colors"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -122,60 +119,19 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-[#356AE6] hover:bg-blue-600 shadow-lg shadow-blue-500/25 transition-all transform active:scale-[0.99] disabled:opacity-50"
+              className="w-full py-2.5 px-4 rounded-lg text-sm font-semibold text-white bg-[#356AE6] hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 cursor-pointer mt-2"
             >
-              {isLoading ? 'Authenticating...' : 'Sign In to Portal'}
+              {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
           </form>
 
-          {/* Quick Demo Switcher */}
-          <div className="mt-8 pt-6 border-t border-slate-100">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block text-center mb-3">
-              Quick Role Test Credentials
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickDemoLogin('admin', 'Admin@12345')}
-                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Admin</div>
-                <div className="text-[10px] text-slate-500">Full System Control</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDemoLogin('board_lead', 'Board@12345')}
-                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Board Lead</div>
-                <div className="text-[10px] text-slate-500">Booking Creator</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDemoLogin('mirage_head', 'Mirage@12345')}
-                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Mirage Head</div>
-                <div className="text-[10px] text-slate-500">Team Head (Mirage)</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDemoLogin('unitrix_head', 'Unitrix@12345')}
-                className="p-2.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-blue-50 hover:border-blue-300 text-left transition-colors"
-              >
-                <div className="text-xs font-bold text-slate-800">Unitrix Head</div>
-                <div className="text-[10px] text-slate-500">Team Head (Unitrix)</div>
-              </button>
-            </div>
+          {/* Footer note */}
+          <div className="mt-8 pt-6 border-t border-slate-800 text-center">
+            <p className="text-xs text-slate-500">
+              Access is restricted to authorized VIT Dance Club members.
+            </p>
           </div>
         </div>
-
-        <p className="mt-6 text-center text-xs text-slate-400">
-          Club access is restricted to approved members. Contact the Administrator for credentials.
-        </p>
       </div>
     </div>
   );
