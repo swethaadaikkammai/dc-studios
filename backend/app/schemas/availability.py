@@ -9,6 +9,7 @@ class AvailabilitySlot(BaseModel):
     end_at: str
     is_available: bool
     reason: str
+    can_admin_override: Optional[bool] = False
 
 
 class AvailabilityResponse(BaseModel):

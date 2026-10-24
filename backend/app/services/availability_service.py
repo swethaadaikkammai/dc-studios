@@ -97,7 +97,8 @@ class AvailabilityService:
                 "start_at": current_slot_start.isoformat(),
                 "end_at": current_slot_end.isoformat(),
                 "is_available": is_available,
-                "reason": reason
+                "reason": reason,
+                "can_admin_override": (reason == "Weekend bookings require 24h prior notice")
             })
 
             current_slot_start = current_slot_end

@@ -161,7 +161,57 @@ def test_booking_factory_enforces_weekend_advance_rule():
             created_by=1,
             start_at=sat_11am,
             end_at=sat_12pm,
-            server_now=mock_friday_4pm
+            server_now=mock_friday_4pm,
+            keys_secured=False
         )
     assert "24 hours" in str(exc_info.value.message)
     assert "Weekend" in str(exc_info.value.message)
+
+    # With keys_secured=True (Admin Override), it succeeds even with short notice (< 24h)
+    booking_override = BookingFactory.create_booking(
+        team_id=1,
+        room_id=1,
+        created_by=1,
+        start_at=sat_11am,
+        end_at=sat_12pm,
+        server_now=mock_friday_4pm,
+        keys_secured=True
+    )
+    assert booking_override.status == "CONFIRMED"
+    assert "Keys Secured - Admin Override" in booking_override.purpose
+
+
+def test_api_keys_secured_admin_override(client: TestClient, db_session: Session):
+    admin = db_session.query(User).filter(User.username == "admin").first()
+    board_user = db_session.query(User).filter(User.username == "board_lead").first()
+    team = db_session.query(Team).filter(Team.name == "Mirage").first()
+    room = db_session.query(Room).filter(Room.name == "Dance Room 1 - PRP201").first()
+
+    # Find the next Saturday or Sunday that is within 48h
+    server_now = get_authoritative_server_now()
+    # Let's test non-admin passing keys_secured=True -> must be 403 Forbidden
+    board_headers = get_token_headers(board_user)
+    target_dt = server_now.date() + timedelta(days=2)
+    start_dt = campus_tz.localize(datetime.combine(target_dt, datetime.strptime("14:00", "%H:%M").time()))
+    end_dt = campus_tz.localize(datetime.combine(target_dt, datetime.strptime("15:00", "%H:%M").time()))
+
+    resp_non_admin = client.post("/api/bookings", headers=board_headers, json={
+        "team_id": team.id,
+        "room_id": room.id,
+        "start_at": start_dt.isoformat(),
+        "end_at": end_dt.isoformat(),
+        "keys_secured": True
+    })
+    assert resp_non_admin.status_code == 403
+    assert "administrators" in resp_non_admin.json()["detail"].lower()
+
+    # Admin with keys_secured=True -> 201 Created
+    admin_headers = get_token_headers(admin)
+    resp_admin = client.post("/api/bookings", headers=admin_headers, json={
+        "team_id": team.id,
+        "room_id": room.id,
+        "start_at": start_dt.isoformat(),
+        "end_at": end_dt.isoformat(),
+        "keys_secured": True
+    })
+    assert resp_admin.status_code in (201, 409)

@@ -12,7 +12,8 @@ import {
   Hourglass,
   Layers,
   MessageSquare,
-  Download
+  Download,
+  Key
 } from 'lucide-react';
 import { format, addDays, parseISO, isAfter } from 'date-fns';
 
@@ -48,6 +49,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   const [createdBooking, setCreatedBooking] = useState<any | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [conflictMsg, setConflictMsg] = useState<string | null>(null);
+  const [keysSecured, setKeysSecured] = useState<boolean>(false);
 
   // Load teams and rooms on mount
   useEffect(() => {
@@ -135,8 +137,12 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
       return;
     }
 
+    const isAdmin = user?.role === 'ADMIN';
+    const canUseAdminOverride = isAdmin && keysSecured;
+
     const startSlot = availability.slots[selectedSlotIndex];
-    if (!startSlot || !startSlot.is_available) {
+    const isStartSlotOk = startSlot && (startSlot.is_available || (canUseAdminOverride && startSlot.can_admin_override));
+    if (!startSlot || !isStartSlotOk) {
       setErrorMsg('Selected starting slot is not available.');
       return;
     }
@@ -150,8 +156,10 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
 
     // Check if intermediate slots are available
     for (let i = selectedSlotIndex; i <= endSlotIndex; i++) {
-      if (!availability.slots[i].is_available) {
-        setErrorMsg(`Slot ${availability.slots[i].start_time} - ${availability.slots[i].end_time} is not available.`);
+      const slot = availability.slots[i];
+      const slotOk = slot.is_available || (canUseAdminOverride && slot.can_admin_override);
+      if (!slotOk) {
+        setErrorMsg(`Slot ${slot.start_time} - ${slot.end_time} is not available.`);
         return;
       }
     }
@@ -159,14 +167,16 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     const start_at = startSlot.start_at;
     const end_at = availability.slots[endSlotIndex].end_at;
 
-    // Check weekend 24h advance requirement
-    const slotDate = new Date(start_at);
-    const dayOfWeek = slotDate.getDay(); // 0 is Sunday, 6 is Saturday
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      const hoursUntilSlot = (slotDate.getTime() - Date.now()) / (1000 * 60 * 60);
-      if (hoursUntilSlot < 24) {
-        setErrorMsg('Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours) prior to the requested time slot.');
-        return;
+    // Check weekend 24h advance requirement (bypassed if Admin has keys secured)
+    if (!canUseAdminOverride) {
+      const slotDate = new Date(start_at);
+      const dayOfWeek = slotDate.getDay(); // 0 is Sunday, 6 is Saturday
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        const hoursUntilSlot = (slotDate.getTime() - Date.now()) / (1000 * 60 * 60);
+        if (hoursUntilSlot < 24) {
+          setErrorMsg('Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours) prior to the requested time slot.');
+          return;
+        }
       }
     }
 
@@ -178,6 +188,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
         start_at,
         end_at,
         purpose: purpose.trim() || undefined,
+        keys_secured: canUseAdminOverride ? true : undefined,
       });
 
       setCreatedBooking(newBooking);
@@ -261,6 +272,37 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Admin Override: Keys Secured for Weekend */}
+          {user?.role === 'ADMIN' && (
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300 text-amber-950 shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <div className="p-1.5 rounded-xl bg-amber-200/80 text-amber-900 shrink-0 mt-0.5">
+                  <Key className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
+                    Keys Secured for Weekend
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 uppercase tracking-wider">
+                      Admin Rule Override
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-amber-800 mt-0.5">
+                    Studio keys are verified secured. Enables same-day and short-notice weekend booking.
+                  </div>
+                </div>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+                <input
+                  type="checkbox"
+                  checked={keysSecured}
+                  onChange={(e) => setKeysSecured(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
+              </label>
+            </div>
+          )}
 
           {conflictMsg && (
             <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2">
@@ -367,28 +409,41 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
               <div className="max-h-48 overflow-y-auto p-2 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {availability.slots.map((slot, idx) => {
                   const isSelected = selectedSlotIndex === idx;
+                  const isAdmin = user?.role === 'ADMIN';
+                  const isOverridden = !slot.is_available && isAdmin && keysSecured && Boolean(slot.can_admin_override);
+                  const isClickable = slot.is_available || isOverridden;
+
                   return (
                     <button
                       type="button"
                       key={slot.start_time}
-                      disabled={!slot.is_available}
+                      disabled={!isClickable}
                       onClick={() => handleSlotSelect(idx)}
+                      title={!isClickable ? slot.reason : isOverridden ? 'Keys secured: Admin override active' : undefined}
                       className={`p-2 rounded-xl text-xs font-semibold text-center border transition-all flex flex-col items-center justify-center ${
                         isSelected
-                          ? 'bg-[#356AE6] text-white border-[#356AE6] shadow-sm'
+                          ? isOverridden
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
+                            : 'bg-[#356AE6] text-white border-[#356AE6] shadow-sm'
                           : slot.is_available
                           ? 'bg-white text-slate-800 border-slate-200 hover:border-blue-400 hover:bg-blue-50/50'
+                          : isOverridden
+                          ? 'bg-amber-50/90 text-amber-900 border-amber-300 hover:bg-amber-100 hover:border-amber-400'
                           : 'bg-slate-100/70 text-slate-400 border-slate-200/50 cursor-not-allowed'
                       }`}
                     >
                       <span className="text-xs font-bold">
                         {slot.start_time} - {slot.end_time}
                       </span>
-                      {!slot.is_available && (
+                      {isOverridden ? (
+                        <span className="text-[9px] text-amber-700 font-semibold truncate max-w-full">
+                          Keys Secured
+                        </span>
+                      ) : !slot.is_available ? (
                         <span className="text-[9px] text-rose-500 font-normal truncate max-w-full">
                           {slot.reason}
                         </span>
-                      )}
+                      ) : null}
                     </button>
                   );
                 })}
@@ -421,12 +476,13 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                     },
                     (_, i) => i + 1
                   ).map((multiplier) => {
+                    const isAdmin = user?.role === 'ADMIN';
                     const mins = multiplier * (availability.slot_interval_minutes || 30);
                     const canFit = selectedSlotIndex + multiplier <= availability.slots.length;
                     const endSlot = canFit ? availability.slots[selectedSlotIndex + multiplier - 1] : null;
                     const isContinuous = canFit && availability.slots
                       .slice(selectedSlotIndex, selectedSlotIndex + multiplier)
-                      .every((s) => s.is_available);
+                      .every((s) => s.is_available || (isAdmin && keysSecured && Boolean(s.can_admin_override)));
                     const isSelectable = canFit && isContinuous;
 
                     return (

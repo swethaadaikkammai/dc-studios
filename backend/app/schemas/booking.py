@@ -17,6 +17,7 @@ class BookingCreate(BaseModel):
     start_at: datetime
     end_at: datetime
     purpose: Optional[str] = None
+    keys_secured: Optional[bool] = False
 
 
 class WhatsAppPassInfo(BaseModel):

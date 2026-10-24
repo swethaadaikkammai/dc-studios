@@ -43,7 +43,8 @@ class BookingService(IBookingService):
         start_at: datetime,
         end_at: datetime,
         purpose: Optional[str] = None,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        keys_secured: bool = False
     ) -> Booking:
         # Step 1: Capture authoritative server timestamp (or deterministic clock for testing)
         server_now = clock or get_authoritative_server_now()
@@ -81,7 +82,8 @@ class BookingService(IBookingService):
             end_at=end_at,
             server_now=server_now,
             purpose=purpose,
-            config=cfg
+            config=cfg,
+            keys_secured=keys_secured
         )
 
         # Step 6: Database Transaction with Re-Validation and Atomic Conflict Protection

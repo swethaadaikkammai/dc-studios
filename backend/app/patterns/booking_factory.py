@@ -35,7 +35,8 @@ class BookingFactory:
         end_at: datetime,
         server_now: datetime,
         purpose: Optional[str] = None,
-        config: Optional[ClubConfig] = None
+        config: Optional[ClubConfig] = None,
+        keys_secured: bool = False
     ) -> Booking:
         if not team_id or not room_id or not created_by:
             raise BookingException("Team ID, Room ID, and Creator ID are required.", status_code=400)
@@ -56,13 +57,15 @@ class BookingFactory:
             raise WindowViolationException(window_error)
 
         # 2. Enforce Weekend 24-Hour Prior Notice Rule (Saturday & Sunday must be booked >= 24h prior)
-        valid_weekend, weekend_error = validate_weekend_advance_booking(
-            start_at=start_tz,
-            server_now=now_tz,
-            min_advance_hours=24
-        )
-        if not valid_weekend:
-            raise WindowViolationException(weekend_error)
+        # Administrators can bypass this rule when studio keys are secured for the weekend
+        if not keys_secured:
+            valid_weekend, weekend_error = validate_weekend_advance_booking(
+                start_at=start_tz,
+                server_now=now_tz,
+                min_advance_hours=24
+            )
+            if not valid_weekend:
+                raise WindowViolationException(weekend_error)
 
         # 3. Enforce Operating Hours, Interval, and Max Duration Constraints
         valid_hours, hours_error = validate_slot_operating_hours(
@@ -76,7 +79,14 @@ class BookingFactory:
         if not valid_hours:
             raise OperatingHoursException(hours_error)
 
-        # 3. Construct and return initialized Booking domain model in CONFIRMED state
+        booking_purpose = purpose.strip() if purpose else None
+        if keys_secured:
+            if booking_purpose:
+                booking_purpose = f"{booking_purpose} [Keys Secured - Admin Override]"
+            else:
+                booking_purpose = "[Keys Secured - Admin Override]"
+
+        # 4. Construct and return initialized Booking domain model in CONFIRMED state
         return Booking(
             team_id=team_id,
             room_id=room_id,
@@ -84,5 +94,5 @@ class BookingFactory:
             start_at=start_tz,
             end_at=end_tz,
             status="CONFIRMED",
-            purpose=purpose.strip() if purpose else None
+            purpose=booking_purpose
         )

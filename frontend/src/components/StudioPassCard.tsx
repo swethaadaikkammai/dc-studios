@@ -12,7 +12,8 @@ import {
   CheckCircle2,
   XCircle,
   MessageSquare,
-  Check
+  Check,
+  Key
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
@@ -221,6 +222,14 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
             </span>
           )}
         </div>
+
+        {/* Admin Keys Secured Override Badge */}
+        {booking.purpose?.includes('Keys Secured') && (
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold">
+            <Key className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+            <span>Keys Secured (Admin Weekend Rule Override)</span>
+          </div>
+        )}
 
         {/* Details Grid */}
         <div className="grid grid-cols-2 gap-4">

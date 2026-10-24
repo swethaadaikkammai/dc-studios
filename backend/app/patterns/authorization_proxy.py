@@ -19,7 +19,8 @@ class IBookingService:
         start_at: datetime,
         end_at: datetime,
         purpose: Optional[str] = None,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        keys_secured: bool = False
     ) -> Booking:
         pass
 
@@ -80,9 +81,15 @@ class BookingAuthorizationProxy(IBookingService):
         start_at: datetime,
         end_at: datetime,
         purpose: Optional[str] = None,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        keys_secured: bool = False
     ) -> Booking:
         self._verify_active_user(actor)
+
+        # Enforce that only Administrators can bend rules when keys are secured
+        if keys_secured:
+            if actor.role != "ADMIN":
+                raise AuthorizationException("Only administrators can bend weekend booking rules when keys are secured.")
 
         # Team Heads cannot create bookings
         if actor.role == "TEAM_HEAD":
@@ -120,7 +127,8 @@ class BookingAuthorizationProxy(IBookingService):
             start_at=start_at,
             end_at=end_at,
             purpose=purpose,
-            clock=clock
+            clock=clock,
+            keys_secured=keys_secured
         )
 
     def cancel_booking(

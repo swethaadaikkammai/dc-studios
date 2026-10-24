@@ -87,7 +87,7 @@ export const api = {
 
   getBooking: (id: number) => request<Booking>(`/bookings/${id}`),
 
-  createBooking: (payload: { team_id: number; room_id: number; start_at: string; end_at: string; purpose?: string }) =>
+  createBooking: (payload: { team_id: number; room_id: number; start_at: string; end_at: string; purpose?: string; keys_secured?: boolean }) =>
     request<Booking>('/bookings', {
       method: 'POST',
       body: JSON.stringify(payload),

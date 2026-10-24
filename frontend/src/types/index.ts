@@ -75,6 +75,7 @@ export interface AvailabilitySlot {
   end_at: string;
   is_available: boolean;
   reason: string;
+  can_admin_override?: boolean;
 }
 
 export interface AvailabilityResponse {

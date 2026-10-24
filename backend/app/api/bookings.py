@@ -77,7 +77,8 @@ def create_booking(
             room_id=payload.room_id,
             start_at=payload.start_at,
             end_at=payload.end_at,
-            purpose=payload.purpose
+            purpose=payload.purpose,
+            keys_secured=payload.keys_secured or False
         )
         # Automated WhatsApp Pass generation and transactional dispatch
         pass_info = WhatsAppService.dispatch_booking_pass(booking=booking, db=db, actor=current_user)
