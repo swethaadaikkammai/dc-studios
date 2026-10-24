@@ -7,7 +7,8 @@ import {
   Room,
   ClubSettings,
   AuditLog,
-  BoardPermission
+  BoardPermission,
+  ReminderStatusResponse
 } from '../types';
 import {
   ShieldAlert,
@@ -23,13 +24,20 @@ import {
   Pencil,
   Trash2,
   Lock,
-  X
+  X,
+  Bell,
+  Phone,
+  Clock,
+  MessageSquare,
+  Send,
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 export const AdminPage: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'reminders' | 'audit'>('users');
 
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -70,6 +78,55 @@ export const AdminPage: React.FC = () => {
   const [settingsSuccessMsg, setSettingsSuccessMsg] = useState<string | null>(null);
   const [settingsErrorMsg, setSettingsErrorMsg] = useState<string | null>(null);
 
+  // Reminder System State
+  const [reminderData, setReminderData] = useState<ReminderStatusResponse | null>(null);
+  const [adminPhoneInput, setAdminPhoneInput] = useState('');
+  const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
+  const [isCheckingReminders, setIsCheckingReminders] = useState(false);
+  const [reminderCheckMessage, setReminderCheckMessage] = useState<string | null>(null);
+
+  const loadReminderData = async () => {
+    try {
+      const res = await api.getRemindersStatus();
+      setReminderData(res);
+      const currentAdmin = res.admin_phone_numbers.find((a) => a.id === user?.id) || res.admin_phone_numbers[0];
+      if (currentAdmin && currentAdmin.whatsapp_number) {
+        setAdminPhoneInput(currentAdmin.whatsapp_number);
+      }
+    } catch (err: any) {
+      console.error('Failed to load reminder status:', err);
+    }
+  };
+
+  const handleTriggerCheck = async () => {
+    setIsCheckingReminders(true);
+    setReminderCheckMessage(null);
+    try {
+      const res = await api.triggerRemindersCheck();
+      setReminderCheckMessage(res.message);
+      await loadReminderData();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to check reminders.');
+    } finally {
+      setIsCheckingReminders(false);
+    }
+  };
+
+  const handleSavePhone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPhoneInput.trim()) return;
+    setIsUpdatingPhone(true);
+    try {
+      await api.updateAdminReminderPhone(adminPhoneInput.trim());
+      setMessage('Admin reminder phone number updated successfully.');
+      await loadReminderData();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to update reminder phone.');
+    } finally {
+      setIsUpdatingPhone(false);
+    }
+  };
+
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
@@ -98,6 +155,12 @@ export const AdminPage: React.FC = () => {
   useEffect(() => {
     loadAdminData();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'reminders') {
+      loadReminderData();
+    }
+  }, [activeTab]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,6 +361,14 @@ export const AdminPage: React.FC = () => {
           }`}
         >
           <Layers className="w-3.5 h-3.5" /> Studios ({rooms.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('reminders')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'reminders' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Bell className="w-3.5 h-3.5 text-blue-600" /> Session Reminders (5h & 1h)
         </button>
         <button
           onClick={() => setActiveTab('audit')}
@@ -865,7 +936,312 @@ export const AdminPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 5: Audit Trail */}
+      {/* Tab 5: Automated Session Reminders (5h & 1h Prior) */}
+      {activeTab === 'reminders' && (
+        <div className="space-y-6">
+          {/* Header Controls */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-50 text-[#356AE6]">
+                  <Bell className="w-5 h-5" />
+                </div>
+                <h3 className="text-lg font-extrabold text-slate-900 tracking-tight">
+                  Session Reminder System (5h & 1h Prior)
+                </h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+                Monitors confirmed bookings and automatically notifies Administrators on WhatsApp at 5 hours prior (studio keys & room prep) and 1 hour prior (final entry clearance).
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={loadReminderData}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
+                title="Refresh Status"
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Refresh
+              </button>
+              <button
+                onClick={handleTriggerCheck}
+                disabled={isCheckingReminders}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#356AE6] hover:bg-blue-600 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+              >
+                {isCheckingReminders ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scanning Now...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5" /> Scan & Trigger Reminders Now
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {reminderCheckMessage && (
+            <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+              <span className="font-semibold">{reminderCheckMessage}</span>
+            </div>
+          )}
+
+          {/* Admin Phone Number Setting & Rules Cards */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Phone Configuration Card */}
+            <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <Phone className="w-4 h-4 text-[#356AE6]" />
+                <h4 className="text-sm font-bold text-slate-900">Admin Alert Phone Number</h4>
+              </div>
+              <p className="text-xs text-slate-500">
+                Reminders for upcoming studio sessions will be sent to this WhatsApp contact.
+              </p>
+
+              <form onSubmit={handleSavePhone} className="space-y-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    WhatsApp Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    value={adminPhoneInput}
+                    onChange={(e) => setAdminPhoneInput(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Include country code (e.g. +91)</p>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isUpdatingPhone}
+                  className="w-full py-2.5 rounded-xl bg-[#14213D] hover:bg-slate-800 text-white text-xs font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  {isUpdatingPhone ? 'Saving...' : 'Save Phone Number'}
+                </button>
+              </form>
+
+              {reminderData?.admin_phone_numbers && reminderData.admin_phone_numbers.length > 0 && (
+                <div className="pt-2 border-t border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+                    Active Admin Contacts
+                  </span>
+                  <div className="space-y-1.5">
+                    {reminderData.admin_phone_numbers.map((a) => (
+                      <div key={a.id} className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 border border-slate-100">
+                        <span className="font-bold text-slate-800">@{a.username}</span>
+                        <span className="font-mono text-slate-600 text-[11px]">{a.whatsapp_number || 'No phone set'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Reminder Rules Card */}
+            <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-[#356AE6]" />
+                <h4 className="text-sm font-bold text-slate-900">Configured Automated Reminder Rules</h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-amber-200 text-amber-900">
+                      Milestone 1
+                    </span>
+                    <span className="text-xs font-bold text-amber-900">T - 5 Hours</span>
+                  </div>
+                  <h5 className="text-xs font-bold text-slate-900">5 Hours Prior Notice</h5>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Dispatched exactly 5 hours before rehearsal starts. Alerts the admin to verify studio readiness, key arrangement, and equipment preparation.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200/80 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wider bg-blue-200 text-blue-900">
+                      Milestone 2
+                    </span>
+                    <span className="text-xs font-bold text-blue-900">T - 1 Hour</span>
+                  </div>
+                  <h5 className="text-xs font-bold text-slate-900">1 Hour Prior Final Notice</h5>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    Dispatched 1 hour before rehearsal begins. Final security and door clearance notice to ensure studio doors are unlocked for dancers.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 flex items-start gap-2.5">
+                <Key className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-slate-800">Deduplication Protection: </span>
+                  Reminders are transactionally tracked in the audit trail. Each booking receives exactly one 5-hour reminder and one 1-hour reminder, avoiding duplicate messages.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Upcoming Sessions & Live Reminder Tracking Table */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-base font-bold text-slate-900">Upcoming Sessions & Live Reminder Tracking</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Real-time status of 5-hour and 1-hour alerts for upcoming studio reservations.
+                </p>
+              </div>
+              <span className="text-xs font-bold px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                {reminderData?.upcoming_bookings?.length || 0} Upcoming Sessions
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-y border-slate-100">
+                  <tr>
+                    <th className="py-3 px-4">Booking</th>
+                    <th className="py-3 px-4">Dance Team</th>
+                    <th className="py-3 px-4">Studio Venue</th>
+                    <th className="py-3 px-4">Session Timing</th>
+                    <th className="py-3 px-4">5h Reminder</th>
+                    <th className="py-3 px-4">1h Reminder</th>
+                    <th className="py-3 px-4">Next Due</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {reminderData?.upcoming_bookings && reminderData.upcoming_bookings.length > 0 ? (
+                    reminderData.upcoming_bookings.map((b) => (
+                      <tr key={b.booking_id} className="hover:bg-slate-50/50">
+                        <td className="py-3 px-4 font-bold text-slate-900">#{b.booking_id}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-800">{b.team_name}</td>
+                        <td className="py-3 px-4 text-slate-600">{b.room_name}</td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {format(parseISO(b.start_at), 'dd MMM, hh:mm a')}
+                        </td>
+                        <td className="py-3 px-4">
+                          {b.reminder_5h_sent ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sent
+                            </span>
+                          ) : b.time_until_start_minutes <= 300 && b.time_until_start_minutes > 60 ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 animate-pulse">
+                              <Clock className="w-3 h-3 text-amber-600" /> Due Now
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          {b.reminder_1h_sent ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Sent
+                            </span>
+                          ) : b.time_until_start_minutes <= 60 && b.time_until_start_minutes > 0 ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 animate-pulse">
+                              <Clock className="w-3 h-3 text-amber-600" /> Due Now
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+                              Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 font-medium">
+                          {b.next_reminder}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-slate-400">
+                        No upcoming sessions found in the rolling window.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Dispatched Reminders Log */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-base font-bold text-slate-900">Recent Reminder Dispatches Log</h4>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Audit log of reminder events dispatched to admin contacts.
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto max-h-80">
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 text-slate-400 font-bold uppercase tracking-wider sticky top-0 border-y border-slate-100">
+                  <tr>
+                    <th className="py-3 px-4">Sent At</th>
+                    <th className="py-3 px-4">Booking</th>
+                    <th className="py-3 px-4">Milestone</th>
+                    <th className="py-3 px-4">Recipient</th>
+                    <th className="py-3 px-4">WhatsApp Link</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {reminderData?.recent_dispatches && reminderData.recent_dispatches.length > 0 ? (
+                    reminderData.recent_dispatches.map((r, i) => (
+                      <tr key={i} className="hover:bg-slate-50/50">
+                        <td className="py-3 px-4 text-slate-500 whitespace-nowrap">
+                          {r.sent_at ? format(parseISO(r.sent_at), 'dd MMM, HH:mm:ss') : 'Just now'}
+                        </td>
+                        <td className="py-3 px-4 font-bold text-slate-900">#{r.booking_id}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            r.milestone === '5H' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {r.milestone === '5H' ? '5 Hours Prior' : '1 Hour Prior'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-slate-700">
+                          @{r.recipient_username} ({r.recipient_phone || 'No phone'})
+                        </td>
+                        <td className="py-3 px-4">
+                          {r.whatsapp_url ? (
+                            <a
+                              href={r.whatsapp_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 font-bold text-[11px] border border-emerald-200 transition-colors"
+                            >
+                              <MessageSquare className="w-3 h-3 fill-current" /> Open in WhatsApp
+                            </a>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="py-8 text-center text-slate-400">
+                        No reminders dispatched yet. Reminders trigger automatically 5 hours and 1 hour before each booking.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 6: Audit Trail */}
       {activeTab === 'audit' && (
         <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-4">
           <div>

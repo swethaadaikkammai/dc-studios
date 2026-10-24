@@ -15,7 +15,13 @@ from app.schemas.team import TeamRead, TeamUpdate
 from app.schemas.club_settings import ClubSettingsRead, ClubSettingsUpdate
 from app.schemas.board_permission import BoardPermissionRead, BoardPermissionUpdate
 from app.schemas.audit_log import AuditLogRead
+from app.schemas.reminder import (
+    ReminderStatusResponse,
+    CheckRemindersResponse,
+    AdminPhoneUpdate
+)
 from app.services.admin_service import AdminService
+from app.services.reminder_service import ReminderService
 from app.core.exceptions import BookingException, RoomLimitExceededException
 
 router = APIRouter(prefix="/admin", tags=["Administration"])
@@ -200,3 +206,58 @@ def update_team(
     db.commit()
     db.refresh(team)
     return team
+
+
+@router.get("/reminders/status", response_model=ReminderStatusResponse)
+def get_reminders_status(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Returns live reminder module status:
+    - Configured admin alert phone numbers
+    - 5-hour and 1-hour reminder rules
+    - Upcoming bookings and their reminder dispatch flags
+    - Recent dispatched reminder log with direct WhatsApp URLs
+    """
+    return ReminderService.get_reminders_status(db=db)
+
+
+@router.post("/reminders/check", response_model=CheckRemindersResponse)
+def trigger_reminders_check(
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Manually triggers an immediate scan of all upcoming sessions to evaluate
+    and dispatch due 5-hour and 1-hour reminders to the administrator.
+    """
+    dispatches = ReminderService.check_and_dispatch_reminders(db=db)
+    now = ReminderService.get_reminders_status(db=db).admin_phone_numbers
+    return CheckRemindersResponse(
+        checked_at=ReminderService.format_reminder_text.__name__,
+        total_dispatched=len(dispatches),
+        dispatches=dispatches,
+        message=f"Scan complete. Dispatched {len(dispatches)} reminder(s) to administrator contact(s)."
+    )
+
+
+@router.patch("/reminders/phone")
+def update_admin_reminder_phone(
+    payload: AdminPhoneUpdate,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Updates the logged-in administrator's alert phone number for receiving
+    session reminders (5 hours prior & 1 hour prior).
+    """
+    admin_user.whatsapp_number = payload.phone_number.strip()
+    db.commit()
+    db.refresh(admin_user)
+    return {
+        "message": "Admin reminder phone number updated successfully.",
+        "admin_id": admin_user.id,
+        "username": admin_user.username,
+        "whatsapp_number": admin_user.whatsapp_number
+    }

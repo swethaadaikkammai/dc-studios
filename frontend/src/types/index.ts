@@ -113,3 +113,49 @@ export interface AuditLog {
   details: string | null;
   actor?: User | null;
 }
+
+export interface AdminPhoneInfo {
+  id: number;
+  username: string;
+  email: string;
+  whatsapp_number?: string | null;
+}
+
+export interface ReminderRuleInfo {
+  milestone: string;
+  hours_prior: number;
+  description: string;
+}
+
+export interface UpcomingBookingReminderInfo {
+  booking_id: number;
+  team_id: number;
+  team_name: string;
+  room_id: number;
+  room_name: string;
+  start_at: string;
+  end_at: string;
+  time_until_start_minutes: number;
+  reminder_5h_sent: boolean;
+  reminder_1h_sent: boolean;
+  reminder_5h_sent_at?: string | null;
+  reminder_1h_sent_at?: string | null;
+  next_reminder?: string | null;
+}
+
+export interface ReminderDispatchRecord {
+  booking_id: number;
+  milestone: string;
+  recipient_phone?: string | null;
+  recipient_username: string;
+  sent_at: string;
+  reminder_text: string;
+  whatsapp_url?: string | null;
+}
+
+export interface ReminderStatusResponse {
+  admin_phone_numbers: AdminPhoneInfo[];
+  reminder_rules: ReminderRuleInfo[];
+  upcoming_bookings: UpcomingBookingReminderInfo[];
+  recent_dispatches: ReminderDispatchRecord[];
+}

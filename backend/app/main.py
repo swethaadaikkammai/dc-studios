@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
@@ -6,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.patterns.club_config_singleton import ClubConfig
+from app.services.reminder_service import ReminderService
 from app.api import auth, bookings, teams, rooms, admin
 from app.core.exceptions import (
     BookingConflictException,
@@ -19,6 +21,25 @@ from app.core.exceptions import (
 )
 
 
+async def periodic_reminder_scheduler():
+    """Background task running continuously to check and dispatch 5h and 1h reminders."""
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                ReminderService.check_and_dispatch_reminders(db=db)
+            finally:
+                db.close()
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            print(f"[ReminderScheduler] Warning: {e}")
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            break
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Load latest club settings into process-level ClubConfig singleton
@@ -30,8 +51,19 @@ async def lifespan(app: FastAPI):
         print(f"[Lifespan] Warning: Failed to pre-load settings: {e}")
     finally:
         db.close()
+
+    # Start automated reminder background daemon
+    reminder_task = asyncio.create_task(periodic_reminder_scheduler())
+    print("[Lifespan] Started automated 5h and 1h session reminder scheduler.")
+
     yield
-    # Shutdown logic if any
+
+    # Shutdown
+    reminder_task.cancel()
+    try:
+        await reminder_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

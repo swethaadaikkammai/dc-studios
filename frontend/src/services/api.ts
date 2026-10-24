@@ -6,7 +6,9 @@ import {
   ClubSettings,
   AvailabilityResponse,
   AuditLog,
-  BoardPermission
+  BoardPermission,
+  ReminderStatusResponse,
+  ReminderDispatchRecord
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -170,6 +172,24 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(payload),
     }),
+
+  // Reminder System
+  getRemindersStatus: () => request<ReminderStatusResponse>('/admin/reminders/status'),
+
+  triggerRemindersCheck: () =>
+    request<{ checked_at: string; total_dispatched: number; dispatches: ReminderDispatchRecord[]; message: string }>(
+      '/admin/reminders/check',
+      { method: 'POST' }
+    ),
+
+  updateAdminReminderPhone: (phoneNumber: string) =>
+    request<{ message: string; admin_id: number; username: string; whatsapp_number: string }>(
+      '/admin/reminders/phone',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ phone_number: phoneNumber }),
+      }
+    ),
 };
 
 export { ApiError };

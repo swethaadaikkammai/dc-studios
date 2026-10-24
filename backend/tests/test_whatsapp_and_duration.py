@@ -127,7 +127,7 @@ def test_cancelled_booking_frees_availability_and_excluded_from_confirmed_list(c
     headers = get_token_headers(admin)
 
     server_now = get_authoritative_server_now()
-    target_day = server_now.date() + timedelta(days=1)
+    target_day = server_now.date() + timedelta(days=2)
     start_dt = campus_tz.localize(datetime.combine(target_day, datetime.strptime("15:00", "%H:%M").time()))
     end_dt = campus_tz.localize(datetime.combine(target_day, datetime.strptime("16:00", "%H:%M").time()))
 
