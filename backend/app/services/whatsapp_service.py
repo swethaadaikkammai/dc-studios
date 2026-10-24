@@ -35,7 +35,7 @@ class WhatsAppService:
         room_name = booking.room.name if booking.room else f"Room #{booking.room_id}"
         creator_name = booking.creator.username if booking.creator else "Club Member"
         head_name = team_head.username if team_head else "Team Leader"
-        pass_image_url = f"http://127.0.0.1:8000/api/bookings/{booking.id}/pass.png"
+        pass_image_url = f"http://127.0.0.1:8001/api/bookings/{booking.id}/pass.png"
 
         return (
             f"*DC STUDIOS — OFFICIAL STUDIO BOOKING PASS*\n"
