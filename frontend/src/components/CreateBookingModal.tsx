@@ -7,7 +7,6 @@ import {
   X,
   Calendar as CalendarIcon,
   Clock,
-  Sparkles,
   AlertCircle,
   CheckCircle2,
   Hourglass,
@@ -160,6 +159,17 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     const start_at = startSlot.start_at;
     const end_at = availability.slots[endSlotIndex].end_at;
 
+    // Check weekend 24h advance requirement
+    const slotDate = new Date(start_at);
+    const dayOfWeek = slotDate.getDay(); // 0 is Sunday, 6 is Saturday
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      const hoursUntilSlot = (slotDate.getTime() - Date.now()) / (1000 * 60 * 60);
+      if (hoursUntilSlot < 24) {
+        setErrorMsg('Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours) prior to the requested time slot.');
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
       const newBooking = await api.createBooking({
@@ -218,32 +228,37 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
 
           <button
             onClick={onClose}
-            className="relative z-10 absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+            className="absolute top-4 right-4 z-20 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer border border-white/10"
+            title="Close"
           >
             <X className="w-4 h-4" />
           </button>
-          <div className="relative z-10 flex items-center gap-3 mb-1.5">
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden border border-slate-700 shrink-0 shadow-sm">
-              <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
+          <div className="relative z-10 flex items-center gap-3 mb-2 pr-12">
+            <div className="w-9 h-9 rounded-full overflow-hidden border border-white/25 shrink-0 shadow-md">
+              <img src="/logo.png" alt="DC Studios Logo" className="w-full h-full object-cover" />
             </div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-xs font-semibold uppercase tracking-wider border border-blue-400/30">
-              <Sparkles className="w-3.5 h-3.5" />
+            <div className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-white/15 text-blue-200 text-xs font-semibold uppercase tracking-wider border border-white/20">
               Studio Reservation
             </div>
           </div>
-          <h3 className="relative z-10 text-xl font-bold tracking-tight text-white">Book DC Studios</h3>
-          <p className="relative z-10 text-xs text-slate-300 mt-0.5">
+          <h3 className="relative z-10 text-xl font-bold tracking-tight text-white pr-12">Book DC Studios</h3>
+          <p className="relative z-10 text-xs text-slate-300 mt-0.5 pr-12">
             Bookings are strictly governed by the rolling 72-hour window and FCFS engine.
           </p>
         </div>
 
         {/* Form Body - Scrollable */}
         <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 overscroll-contain">
-          {/* 72-Hour Warning & Status Alert */}
-          <div className="flex items-start gap-2.5 p-3 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-900">
+          {/* 72-Hour Warning & Weekend Notice Alert */}
+          <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-blue-50/90 border border-blue-200 text-xs text-blue-950">
             <Hourglass className="w-4 h-4 text-[#356AE6] shrink-0 mt-0.5" />
-            <div>
-              <span className="font-bold">Rolling 72-Hour Window Notice:</span> Only slots within the next 72 hours from authoritative server time are bookable. Partial calendar days beyond the 72h boundary are disabled.
+            <div className="space-y-1">
+              <div>
+                <span className="font-bold">Rolling 72-Hour Window:</span> Only slots within the next 72 hours from authoritative server time are bookable.
+              </div>
+              <div>
+                <span className="font-bold text-blue-950">Weekend Advance Booking Rule:</span> Saturday and Sunday slots must be reserved at least 1 day (24 hours) prior to the requested time slot.
+              </div>
             </div>
           </div>
 

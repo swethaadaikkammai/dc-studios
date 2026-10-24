@@ -11,7 +11,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
-  Sparkles,
   MessageSquare,
   Check
 } from 'lucide-react';
@@ -183,8 +182,7 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
         </button>
 
         <div className="relative z-10 flex items-center justify-between mb-3 pr-12">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold uppercase tracking-wider">
-            <Sparkles className="w-3.5 h-3.5 text-blue-300" />
+          <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold uppercase tracking-wider">
             Studio Reservation Pass
           </div>
           <div className="w-7 h-7 rounded-full overflow-hidden border border-white/30 shadow-sm shrink-0">

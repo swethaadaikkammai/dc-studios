@@ -15,7 +15,6 @@ import {
   Hourglass,
   Layers,
   MapPin,
-  Sparkles,
   CheckCircle2,
   CalendarDays,
   LayoutGrid

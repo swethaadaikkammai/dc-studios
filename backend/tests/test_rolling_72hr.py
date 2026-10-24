@@ -11,6 +11,7 @@ from app.core.time_utils import (
     campus_tz,
     get_authoritative_server_now,
     is_within_rolling_72h_window,
+    validate_weekend_advance_booking,
     validate_slot_operating_hours
 )
 from app.patterns.booking_factory import BookingFactory
@@ -113,3 +114,54 @@ def test_api_rejects_past_slot(client: TestClient, db_session: Session):
     })
     assert resp.status_code == 422
     assert "past" in resp.json()["detail"].lower()
+
+
+def test_weekend_advance_booking_rule():
+    # Base server time: Friday 2026-10-23 at 14:00 (2:00 PM)
+    mock_friday_2pm = campus_tz.localize(datetime(2026, 10, 23, 14, 0, 0))
+
+    # 1. Saturday 10:00 AM (20 hours notice): MUST BE REJECTED (< 24h)
+    sat_10am = campus_tz.localize(datetime(2026, 10, 24, 10, 0, 0))
+    valid, err = validate_weekend_advance_booking(sat_10am, mock_friday_2pm, min_advance_hours=24)
+    assert not valid
+    assert "24 hours" in err
+    assert "Saturday" in err
+
+    # 2. Saturday 15:00 PM (25 hours notice): VALID (>= 24h and within 72h)
+    sat_3pm = campus_tz.localize(datetime(2026, 10, 24, 15, 0, 0))
+    valid, err = validate_weekend_advance_booking(sat_3pm, mock_friday_2pm, min_advance_hours=24)
+    assert valid
+    assert err == ""
+
+    # 3. Sunday 11:00 AM (45 hours notice): VALID (>= 24h)
+    sun_11am = campus_tz.localize(datetime(2026, 10, 25, 11, 0, 0))
+    valid, err = validate_weekend_advance_booking(sun_11am, mock_friday_2pm, min_advance_hours=24)
+    assert valid
+    assert err == ""
+
+    # 4. Weekday same lead time: Tuesday 14:00 for Wednesday 10:00 (20h lead time) is VALID (weekend rule doesn't apply to weekdays)
+    tue_2pm = campus_tz.localize(datetime(2026, 10, 20, 14, 0, 0))
+    wed_10am = campus_tz.localize(datetime(2026, 10, 21, 10, 0, 0))
+    valid, err = validate_weekend_advance_booking(wed_10am, tue_2pm, min_advance_hours=24)
+    assert valid
+    assert err == ""
+
+
+def test_booking_factory_enforces_weekend_advance_rule():
+    # Base server time: Friday at 16:00
+    mock_friday_4pm = campus_tz.localize(datetime(2026, 10, 23, 16, 0, 0))
+    # Booking attempt for Saturday at 11:00 (19h notice < 24h)
+    sat_11am = campus_tz.localize(datetime(2026, 10, 24, 11, 0, 0))
+    sat_12pm = campus_tz.localize(datetime(2026, 10, 24, 12, 0, 0))
+
+    with pytest.raises(WindowViolationException) as exc_info:
+        BookingFactory.create_booking(
+            team_id=1,
+            room_id=1,
+            created_by=1,
+            start_at=sat_11am,
+            end_at=sat_12pm,
+            server_now=mock_friday_4pm
+        )
+    assert "24 hours" in str(exc_info.value.message)
+    assert "Weekend" in str(exc_info.value.message)

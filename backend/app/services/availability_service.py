@@ -75,7 +75,12 @@ class AvailabilityService:
                 is_available = False
                 reason = "Outside 72-hour window"
 
-            # 3. Collision with confirmed booking in the same room
+            # 3. Weekend advance booking check (must be booked at least 24 hours prior)
+            elif current_slot_start.weekday() in (5, 6) and (current_slot_start - server_now) < timedelta(hours=24):
+                is_available = False
+                reason = "Weekend bookings require 24h prior notice"
+
+            # 4. Collision with confirmed booking in the same room
             else:
                 for b in existing_bookings:
                     b_start = ensure_campus_timezone(b.start_at)

@@ -50,9 +50,9 @@ def test_booking_creation_dispatches_whatsapp_pass(client: TestClient, db_sessio
     headers = get_token_headers(admin)
 
     server_now = get_authoritative_server_now()
-    tomorrow = server_now.date() + timedelta(days=1)
-    start_dt = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("11:30", "%H:%M").time()))
-    end_dt = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("13:30", "%H:%M").time()))
+    target_date = server_now.date() + timedelta(days=2)
+    start_dt = campus_tz.localize(datetime.combine(target_date, datetime.strptime("11:30", "%H:%M").time()))
+    end_dt = campus_tz.localize(datetime.combine(target_date, datetime.strptime("13:30", "%H:%M").time()))
 
     resp = client.post("/api/bookings", headers=headers, json={
         "team_id": team.id,

@@ -19,10 +19,10 @@ def test_board_member_can_book_for_assigned_team(client: TestClient, db_session:
     room = db_session.query(Room).filter(Room.name == "Dance Room 1 - PRP201").first()
 
     server_now = get_authoritative_server_now()
-    # Tomorrow at 10:00 AM
-    tomorrow = server_now.date() + timedelta(days=1)
-    start_dt = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("10:00", "%H:%M").time()))
-    end_dt = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("11:00", "%H:%M").time()))
+    # 2 days in the future at 10:00 AM (within 72h window, >= 24h notice)
+    target_date = server_now.date() + timedelta(days=2)
+    start_dt = campus_tz.localize(datetime.combine(target_date, datetime.strptime("10:00", "%H:%M").time()))
+    end_dt = campus_tz.localize(datetime.combine(target_date, datetime.strptime("11:00", "%H:%M").time()))
 
     headers = get_token_headers(board_user)
     response = client.post("/api/bookings", headers=headers, json={

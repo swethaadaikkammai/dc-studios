@@ -19,11 +19,11 @@ def test_opening_hours_valid_and_invalid(client: TestClient, db_session: Session
     headers = get_token_headers(admin)
 
     server_now = get_authoritative_server_now()
-    tomorrow = server_now.date() + timedelta(days=1)
+    target_date = server_now.date() + timedelta(days=2)
 
     # 1. 09:00 AM start is valid
-    start_9am = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("09:00", "%H:%M").time()))
-    end_10am = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("10:00", "%H:%M").time()))
+    start_9am = campus_tz.localize(datetime.combine(target_date, datetime.strptime("09:00", "%H:%M").time()))
+    end_10am = campus_tz.localize(datetime.combine(target_date, datetime.strptime("10:00", "%H:%M").time()))
     resp_9am = client.post("/api/bookings", headers=headers, json={
         "team_id": team.id,
         "room_id": room.id,
@@ -34,8 +34,8 @@ def test_opening_hours_valid_and_invalid(client: TestClient, db_session: Session
     assert resp_9am.status_code in (201, 409)
 
     # 2. Before 09:00 AM (08:30 AM) is REJECTED
-    start_early = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("08:30", "%H:%M").time()))
-    end_early = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("09:30", "%H:%M").time()))
+    start_early = campus_tz.localize(datetime.combine(target_date, datetime.strptime("08:30", "%H:%M").time()))
+    end_early = campus_tz.localize(datetime.combine(target_date, datetime.strptime("09:30", "%H:%M").time()))
     resp_early = client.post("/api/bookings", headers=headers, json={
         "team_id": team.id,
         "room_id": room.id,
@@ -46,8 +46,8 @@ def test_opening_hours_valid_and_invalid(client: TestClient, db_session: Session
     assert "before opening time" in resp_early.json()["detail"].lower()
 
     # 3. After 07:00 PM (19:30) is REJECTED
-    start_late = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("18:30", "%H:%M").time()))
-    end_late = campus_tz.localize(datetime.combine(tomorrow, datetime.strptime("19:30", "%H:%M").time()))
+    start_late = campus_tz.localize(datetime.combine(target_date, datetime.strptime("18:30", "%H:%M").time()))
+    end_late = campus_tz.localize(datetime.combine(target_date, datetime.strptime("19:30", "%H:%M").time()))
     resp_late = client.post("/api/bookings", headers=headers, json={
         "team_id": team.id,
         "room_id": room.id,

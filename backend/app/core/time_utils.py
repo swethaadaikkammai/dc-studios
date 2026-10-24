@@ -48,6 +48,34 @@ def is_within_rolling_72h_window(start_at: datetime, server_now: datetime, advan
     return True, ""
 
 
+def validate_weekend_advance_booking(
+    start_at: datetime,
+    server_now: datetime,
+    min_advance_hours: int = 24
+) -> Tuple[bool, str]:
+    """
+    Validates weekend advance booking rule.
+    Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours)
+    prior to the time slot needed.
+    """
+    start_campus = ensure_campus_timezone(start_at)
+    now_campus = ensure_campus_timezone(server_now)
+
+    # In Python datetime.weekday(): Monday=0 ... Saturday=5, Sunday=6
+    if start_campus.weekday() in (5, 6):
+        lead_time = start_campus - now_campus
+        min_lead = timedelta(hours=min_advance_hours)
+        if lead_time < min_lead:
+            day_name = "Saturday" if start_campus.weekday() == 5 else "Sunday"
+            diff_h = lead_time.total_seconds() / 3600
+            return (
+                False,
+                f"Weekend reservations ({day_name}) must be made at least 1 day (24 hours) prior to the time slot needed. "
+                f"(Current lead time: {max(0.0, diff_h):.1f}h)"
+            )
+    return True, ""
+
+
 def validate_slot_operating_hours(
     start_at: datetime,
     end_at: datetime,

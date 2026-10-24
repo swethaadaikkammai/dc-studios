@@ -8,7 +8,6 @@ import { CreateBookingModal } from '../components/CreateBookingModal';
 import {
   Calendar,
   Clock,
-  Sparkles,
   Plus,
   Hourglass,
   Layers,
@@ -81,8 +80,7 @@ export const DashboardPage: React.FC = () => {
 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-xs font-semibold uppercase tracking-wider mb-3">
-              <Sparkles className="w-3.5 h-3.5 text-blue-300" />
+            <div className="inline-flex items-center px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-xs font-semibold uppercase tracking-wider mb-3">
               DC Studios
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
@@ -106,18 +104,24 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 72-Hour Rolling Advance Notice Banner */}
+      {/* 72-Hour Rolling Advance Notice Banner & Weekend Rule */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl bg-blue-50/80 border border-blue-200/80 text-blue-950 text-xs">
-        <div className="flex items-center gap-2.5">
-          <Hourglass className="w-4 h-4 text-[#356AE6] shrink-0" />
-          <div>
-            <span className="font-bold">Rolling 72-Hour Rule in Effect: </span>
-            Reservations open in a continuous rolling 72-hour window. Slots beyond the exclusive boundary are strictly blocked by the database engine.
+        <div className="flex items-start gap-2.5">
+          <Hourglass className="w-4 h-4 text-[#356AE6] shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div>
+              <span className="font-bold">Rolling 72-Hour Rule in Effect: </span>
+              Reservations open in a continuous rolling 72-hour window. Slots beyond the exclusive boundary are strictly blocked by the database engine.
+            </div>
+            <div>
+              <span className="font-bold text-blue-950">Weekend Booking Rule: </span>
+              Weekend bookings (Saturday & Sunday) must be made at least 1 day (24 hours) prior to the time slot needed.
+            </div>
           </div>
         </div>
         <Link
           to="/calendar"
-          className="inline-flex items-center gap-1 font-bold text-[#356AE6] hover:text-blue-800 shrink-0"
+          className="inline-flex items-center gap-1 font-bold text-[#356AE6] hover:text-blue-800 shrink-0 self-start sm:self-center"
         >
           View Full Timetable <ArrowRight className="w-3.5 h-3.5" />
         </Link>

@@ -4,6 +4,7 @@ from app.models.booking import Booking
 from app.core.time_utils import (
     ensure_campus_timezone,
     is_within_rolling_72h_window,
+    validate_weekend_advance_booking,
     validate_slot_operating_hours
 )
 from app.core.exceptions import (
@@ -54,7 +55,16 @@ class BookingFactory:
         if not in_window:
             raise WindowViolationException(window_error)
 
-        # 2. Enforce Operating Hours, Interval, and Max Duration Constraints
+        # 2. Enforce Weekend 24-Hour Prior Notice Rule (Saturday & Sunday must be booked >= 24h prior)
+        valid_weekend, weekend_error = validate_weekend_advance_booking(
+            start_at=start_tz,
+            server_now=now_tz,
+            min_advance_hours=24
+        )
+        if not valid_weekend:
+            raise WindowViolationException(weekend_error)
+
+        # 3. Enforce Operating Hours, Interval, and Max Duration Constraints
         valid_hours, hours_error = validate_slot_operating_hours(
             start_at=start_tz,
             end_at=end_tz,

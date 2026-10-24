@@ -1,7 +1,7 @@
 import React from 'react';
 import { Booking } from '../types';
 import { useAuth } from '../context/AuthContext';
-import { Clock, MapPin, Sparkles, CheckCircle2, XCircle, AlertCircle, MessageSquare } from 'lucide-react';
+import { Clock, MapPin, CheckCircle2, XCircle, AlertCircle, MessageSquare } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
 interface BookingCardProps {

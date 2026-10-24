@@ -7,7 +7,6 @@ import {
   Users,
   ShieldAlert,
   LogOut,
-  Sparkles,
   Music
 } from 'lucide-react';
 
