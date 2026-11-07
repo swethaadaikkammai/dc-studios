@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, func, text
-from sqlalchemy.dialects.postgresql import ExcludeConstraint
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Text, func
 from sqlalchemy.orm import relationship
 from app.db.session import Base
 
@@ -19,15 +18,6 @@ class Booking(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-
-    __table_args__ = (
-        ExcludeConstraint(
-            ("room_id", "="),
-            (func.tstzrange(text("start_at"), text("end_at"), text("'[)'")), "&&"),
-            where=text("status = 'CONFIRMED'"),
-            name="uq_no_overlapping_active_bookings"
-        ),
-    )
 
     # Relationships
     team = relationship("Team", back_populates="bookings")

@@ -5,8 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "DC Studios Booking"
-    DATABASE_URL: str = "postgresql+psycopg2://postgres@localhost:5433/vit_dance_booking"
-    SECRET_KEY: str = "vit_dance_super_secret_jwt_key_2026_production_grade"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./vit_dance_booking.db")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "vit_dance_super_secret_jwt_key_2026_production_grade")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 hours
     
@@ -15,6 +15,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
+        "http://192.168.0.202:5173",
     ]
     
     # Campus default configurations

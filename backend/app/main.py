@@ -5,10 +5,11 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.patterns.club_config_singleton import ClubConfig
 from app.services.reminder_service import ReminderService
-from app.api import auth, bookings, teams, rooms, admin
+from app.api import auth, bookings, teams, rooms, admin, approvals
+from sqlalchemy import text
 from app.core.exceptions import (
     BookingConflictException,
     WindowViolationException,
@@ -47,6 +48,14 @@ async def lifespan(app: FastAPI):
     try:
         ClubConfig.get_instance().reload(db)
         print("[Lifespan] Loaded active ClubConfig settings into memory.")
+        # Ensure created_at_ms exists on booking_approvals for millisecond race resolution
+        with engine.connect() as conn:
+            res = conn.execute(text("PRAGMA table_info(booking_approvals)")).fetchall()
+            cols = [r[1] for r in res]
+            if "created_at_ms" not in cols and len(cols) > 0:
+                conn.execute(text("ALTER TABLE booking_approvals ADD COLUMN created_at_ms BIGINT"))
+                conn.commit()
+                print("[Lifespan] Added created_at_ms column to booking_approvals table.")
     except Exception as e:
         print(f"[Lifespan] Warning: Failed to pre-load settings: {e}")
     finally:
@@ -77,6 +86,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"^https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -88,6 +98,7 @@ app.include_router(bookings.router, prefix="/api")
 app.include_router(teams.router, prefix="/api")
 app.include_router(rooms.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+app.include_router(approvals.router, prefix="/api")
 
 
 @app.get("/health", tags=["Health"])

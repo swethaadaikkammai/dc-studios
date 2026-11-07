@@ -89,12 +89,25 @@ class BookingService(IBookingService):
         # Step 6: Database Transaction with Re-Validation and Atomic Conflict Protection
         try:
             # Recheck 72h window immediately before committing
-            recheck_now = clock or get_authoritative_server_now()
-            if booking.start_at < recheck_now:
+            recheck_now = ensure_campus_timezone(clock or get_authoritative_server_now())
+            if ensure_campus_timezone(booking.start_at) < recheck_now:
                 raise WindowViolationException("Slot expired between submission and database transaction.")
 
+            # SQLite-compatible overlap check (replaces PostgreSQL GiST exclusion constraint)
+            overlap = db.query(Booking).filter(
+                Booking.room_id == room_id,
+                Booking.status == "CONFIRMED",
+                Booking.start_at < end_at,
+                Booking.end_at > start_at
+            ).first()
+            if overlap:
+                raise BookingConflictException(
+                    f"Room '{room.name}' has already been booked for an overlapping time slot by another member. "
+                    "Studio slots are reserved on a first-come, first-served basis."
+                )
+
             db.add(booking)
-            db.flush()  # Triggers PostgreSQL exclusion constraint check immediately!
+            db.flush()
 
             # Publish BookingCreated event to transactional observers
             event = BookingEvent(
@@ -120,13 +133,6 @@ class BookingService(IBookingService):
 
         except IntegrityError as e:
             db.rollback()
-            # PostgreSQL exclusion constraint violation (GiST range overlap)
-            err_msg = str(e.orig).lower() if hasattr(e, "orig") else str(e).lower()
-            if "uq_no_overlapping_active_bookings" in err_msg or "conflicting key" in err_msg or "exclusion" in err_msg:
-                raise BookingConflictException(
-                    f"Room '{room.name}' has already been booked for an overlapping time slot by another member. "
-                    "Studio slots are reserved on a first-come, first-served basis."
-                )
             raise BookingException(f"Database constraint error: {e}", status_code=409)
         except Exception as e:
             db.rollback()

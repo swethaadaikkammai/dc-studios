@@ -25,6 +25,7 @@ class UserRead(BaseModel):
     team_id: Optional[int] = None
     team: Optional[TeamBrief] = None
     whatsapp_number: Optional[str] = None
+    whatsapp_number_2: Optional[str] = None
     is_active: bool
     created_at: datetime
     last_login_at: Optional[datetime] = None
@@ -38,6 +39,7 @@ class UserCreate(BaseModel):
     role: str
     team_id: Optional[int] = None
     whatsapp_number: Optional[str] = None
+    whatsapp_number_2: Optional[str] = None
     is_active: bool = True
 
 
@@ -47,5 +49,6 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     team_id: Optional[int] = None
     whatsapp_number: Optional[str] = None
+    whatsapp_number_2: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None

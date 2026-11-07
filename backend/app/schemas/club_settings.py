@@ -13,6 +13,7 @@ class ClubSettingsRead(BaseModel):
     advance_booking_hours: int
     cancellation_cutoff_minutes: int
     daily_team_quota_minutes: int
+    weekend_keys_secured: bool = False
 
 
 class ClubSettingsUpdate(BaseModel):
@@ -23,3 +24,4 @@ class ClubSettingsUpdate(BaseModel):
     advance_booking_hours: Optional[int] = None
     cancellation_cutoff_minutes: Optional[int] = None
     daily_team_quota_minutes: Optional[int] = None
+    weekend_keys_secured: Optional[bool] = None

@@ -217,18 +217,16 @@ export const CalendarPage: React.FC = () => {
             </button>
           </div>
 
-          {canCreateBooking && (
-            <button
-              onClick={() => {
-                setSelectedRoomForBooking(null);
-                setIsCreateModalOpen(true);
-              }}
-              className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#356AE6] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all transform active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              Book Studio
-            </button>
-          )}
+          <button
+            onClick={() => {
+              setSelectedRoomForBooking(null);
+              setIsCreateModalOpen(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-[#356AE6] hover:bg-blue-600 text-white font-bold text-xs shadow-md shadow-blue-500/20 transition-all transform active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            {user?.role === 'TEAM_HEAD' ? 'Request Studio' : 'Book Studio'}
+          </button>
         </div>
       </div>
 

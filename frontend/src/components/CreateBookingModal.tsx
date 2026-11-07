@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import { Team, Room, AvailabilityResponse, AvailabilitySlot } from '../types';
+import { Team, Room, AvailabilityResponse, AvailabilitySlot, ClubSettings, BookingApproval } from '../types';
 import { StudioPassCard } from './StudioPassCard';
 import {
   X,
@@ -13,7 +13,8 @@ import {
   Layers,
   MessageSquare,
   Download,
-  Key
+  Key,
+  ExternalLink
 } from 'lucide-react';
 import { format, addDays, parseISO, isAfter } from 'date-fns';
 
@@ -33,8 +34,11 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   initialDate,
 }) => {
   const { user, hasPermissionToBookTeam } = useAuth();
+  const isTeamHead = user?.role === 'TEAM_HEAD';
+  const isAdmin = user?.role === 'ADMIN';
   const [teams, setTeams] = useState<Team[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [settings, setSettings] = useState<ClubSettings | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<number | ''>('');
   const [selectedRoomId, setSelectedRoomId] = useState<number | ''>(initialRoomId || '');
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -47,6 +51,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   const [isLoadingAvailability, setIsLoadingAvailability] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [createdBooking, setCreatedBooking] = useState<any | null>(null);
+  const [submittedApproval, setSubmittedApproval] = useState<BookingApproval | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [conflictMsg, setConflictMsg] = useState<string | null>(null);
   const [keysSecured, setKeysSecured] = useState<boolean>(false);
@@ -55,13 +60,22 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   useEffect(() => {
     async function loadData() {
       try {
-        const [teamsData, roomsData] = await Promise.all([
+        const [teamsData, roomsData, settingsData] = await Promise.all([
           api.getTeams(),
           api.getRooms(),
+          api.getPublicSettings(),
         ]);
+        setSettings(settingsData);
 
-        // Filter teams based on board permissions
-        if (user?.role === 'BOARD_MEMBER') {
+        if (user?.role === 'TEAM_HEAD') {
+          const myTeam = teamsData.filter((t) => t.id === user.team_id);
+          setTeams(myTeam.length > 0 ? myTeam : teamsData);
+          if (user.team_id) {
+            setSelectedTeamId(user.team_id);
+          } else if (teamsData.length > 0) {
+            setSelectedTeamId(teamsData[0].id);
+          }
+        } else if (user?.role === 'BOARD_MEMBER') {
           const permittedTeams = teamsData.filter((t) => hasPermissionToBookTeam(t.id));
           setTeams(permittedTeams);
           if (permittedTeams.length > 0 && selectedTeamId === '') {
@@ -115,13 +129,26 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
   const today = new Date();
   const bookableDates = [0, 1, 2, 3].map((offset) => {
     const d = addDays(today, offset);
+    const dow = d.getDay(); // 0 = Sunday, 6 = Saturday
+    const isWeekend = dow === 0 || dow === 6;
     return {
       dateStr: format(d, 'yyyy-MM-dd'),
       label: offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : format(d, 'EEE, dd MMM'),
+      isWeekend,
     };
   });
 
+  // Is the currently selected date a weekend?
+  const selectedDateObj = new Date(selectedDate + 'T00:00:00');
+  const selectedDateDow = selectedDateObj.getDay();
+  const isSelectedDateWeekend = selectedDateDow === 0 || selectedDateDow === 6;
+  const isWeekendBlocked = isAdmin && isSelectedDateWeekend && !keysSecured;
+
   const handleSlotSelect = (index: number) => {
+    if (isWeekendBlocked) {
+      setErrorMsg("Please enable 'Weekend Keys Secured Mode' above to select weekend slots.");
+      return;
+    }
     setSelectedSlotIndex(index);
     setDurationIntervals(1);
     setConflictMsg(null);
@@ -137,11 +164,8 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
       return;
     }
 
-    const isAdmin = user?.role === 'ADMIN';
-    const canUseAdminOverride = isAdmin && keysSecured;
-
     const startSlot = availability.slots[selectedSlotIndex];
-    const isStartSlotOk = startSlot && (startSlot.is_available || (canUseAdminOverride && startSlot.can_admin_override));
+    const isStartSlotOk = startSlot && (startSlot.is_available || (keysSecured && startSlot.can_admin_override));
     if (!startSlot || !isStartSlotOk) {
       setErrorMsg('Selected starting slot is not available.');
       return;
@@ -157,7 +181,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     // Check if intermediate slots are available
     for (let i = selectedSlotIndex; i <= endSlotIndex; i++) {
       const slot = availability.slots[i];
-      const slotOk = slot.is_available || (canUseAdminOverride && slot.can_admin_override);
+      const slotOk = slot.is_available || (keysSecured && slot.can_admin_override);
       if (!slotOk) {
         setErrorMsg(`Slot ${slot.start_time} - ${slot.end_time} is not available.`);
         return;
@@ -167,16 +191,43 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     const start_at = startSlot.start_at;
     const end_at = availability.slots[endSlotIndex].end_at;
 
-    // Check weekend 24h advance requirement (bypassed if Admin has keys secured)
-    if (!canUseAdminOverride) {
-      const slotDate = new Date(start_at);
-      const dayOfWeek = slotDate.getDay(); // 0 is Sunday, 6 is Saturday
-      if (dayOfWeek === 0 || dayOfWeek === 6) {
-        const hoursUntilSlot = (slotDate.getTime() - Date.now()) / (1000 * 60 * 60);
-        if (hoursUntilSlot < 24) {
-          setErrorMsg('Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours) prior to the requested time slot.');
-          return;
-        }
+    // Weekend rules check:
+    const slotDate = new Date(start_at);
+    const dayOfWeek = slotDate.getDay(); // 0 is Sunday, 6 is Saturday
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    if (!isTeamHead && isWeekend && !keysSecured) {
+      setErrorMsg('Weekend bookings require studio keys to be secured. Please enable "Weekend Keys Secured Mode" above.');
+      return;
+    }
+
+    if (isTeamHead) {
+      setIsSubmitting(true);
+      try {
+        const approval = await api.submitBookingRequest({
+          team_id: Number(selectedTeamId),
+          room_id: Number(selectedRoomId),
+          start_at,
+          end_at,
+          purpose: purpose.trim() || undefined,
+          keys_secured: keysSecured,
+        });
+        setSubmittedApproval(approval);
+        onBookingCreated();
+      } catch (err: any) {
+        setErrorMsg(err.message || 'Failed to submit booking request.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // Check weekend 24h advance requirement (bypassed if keys are secured)
+    if (!keysSecured && isWeekend) {
+      const hoursUntilSlot = (slotDate.getTime() - Date.now()) / (1000 * 60 * 60);
+      if (hoursUntilSlot < 24) {
+        setErrorMsg('Weekend reservations (Saturday & Sunday) must be made at least 1 day (24 hours) prior or have Weekend Keys Secured enabled.');
+        return;
       }
     }
 
@@ -188,7 +239,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
         start_at,
         end_at,
         purpose: purpose.trim() || undefined,
-        keys_secured: canUseAdminOverride ? true : undefined,
+        keys_secured: keysSecured ? true : undefined,
       });
 
       setCreatedBooking(newBooking);
@@ -221,6 +272,109 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
     );
   }
 
+  if (submittedApproval) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-900/60 backdrop-blur-sm overflow-y-auto animate-fade-in">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-100 text-center space-y-4">
+          <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+          <div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">
+              Pending Admin Approval (#{submittedApproval.id})
+            </span>
+            <h3 className="text-xl font-extrabold text-slate-900 mt-2">
+              Booking Request Submitted!
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Your studio slot request has been submitted for administrator approval.
+            </p>
+          </div>
+
+          <div className="bg-slate-50 rounded-2xl p-4 text-xs text-left space-y-2 border border-slate-200">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Team:</span>
+              <span className="font-bold text-slate-800">{submittedApproval.team_name || `Team #${submittedApproval.team_id}`}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Studio:</span>
+              <span className="font-bold text-slate-800">{submittedApproval.room_name || `Room #${submittedApproval.room_id}`}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Requested Timing:</span>
+              <span className="font-bold text-slate-800">
+                {format(parseISO(submittedApproval.start_at), 'dd MMM yyyy, hh:mm a')} – {format(parseISO(submittedApproval.end_at), 'hh:mm a')}
+              </span>
+            </div>
+            {submittedApproval.purpose && (
+              <div className="flex justify-between">
+                <span className="text-slate-400">Purpose:</span>
+                <span className="font-medium text-slate-700">{submittedApproval.purpose}</span>
+              </div>
+            )}
+          </div>
+
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 text-left flex items-start gap-2">
+            <MessageSquare className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold">WhatsApp & Portal Notification:</span> An automated notification pass has been prepared for the admin. Once approved in the portal, this slot will be officially booked!
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <a
+              href={
+                submittedApproval.admin_whatsapp_url ||
+                `https://api.whatsapp.com/send?phone=917010734009&text=${encodeURIComponent(
+                  `*DC STUDIOS — BOOKING REQUEST (#${submittedApproval.id})*\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n*Team:* ${
+                    submittedApproval.team_name || 'Dance Team'
+                  }\n*Room:* ${submittedApproval.room_name || 'Dance Studio'}\n*Slot:* ${format(
+                    parseISO(submittedApproval.start_at),
+                    'dd MMM yyyy, hh:mm a'
+                  )} – ${format(
+                    parseISO(submittedApproval.end_at),
+                    'hh:mm a'
+                  )} IST\n*Purpose:* ${
+                    submittedApproval.purpose || 'Practice'
+                  }\n*Requested by:* @${user?.username || 'team_head'}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nFollow-up message for studio booking request.`
+                )}`
+              }
+              target="_blank"
+              rel="noreferrer"
+              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Follow up with Admin {submittedApproval.admin_whatsapp_url_2 ? '(Primary Contact)' : 'on WhatsApp'}
+            </a>
+
+            {submittedApproval.admin_whatsapp_url_2 && (
+              <a
+                href={submittedApproval.admin_whatsapp_url_2}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-sm cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Follow up with Admin (Secondary Contact)
+              </a>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setSubmittedApproval(null);
+              onClose();
+            }}
+            className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-sm overflow-y-auto animate-fade-in">
       <div className="relative w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 my-auto max-h-[92vh] flex flex-col">
@@ -249,12 +403,16 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
               <img src="/logo.png" alt="DC Studios Logo" className="w-full h-full object-cover" />
             </div>
             <div className="inline-flex items-center px-2.5 py-0.5 rounded-full bg-white/15 text-blue-200 text-xs font-semibold uppercase tracking-wider border border-white/20">
-              Studio Reservation
+              {user?.role === 'TEAM_HEAD' ? 'Studio Booking Request' : 'Studio Reservation'}
             </div>
           </div>
-          <h3 className="relative z-10 text-xl font-bold tracking-tight text-white pr-12">Book DC Studios</h3>
+          <h3 className="relative z-10 text-xl font-bold tracking-tight text-white pr-12">
+            {user?.role === 'TEAM_HEAD' ? 'Request DC Studios' : 'Book DC Studios'}
+          </h3>
           <p className="relative z-10 text-xs text-slate-300 mt-0.5 pr-12">
-            Bookings are strictly governed by the rolling 72-hour window and FCFS engine.
+            {user?.role === 'TEAM_HEAD'
+              ? 'Select your desired studio slot. Requests require Administrator approval.'
+              : 'Bookings are strictly governed by the rolling 72-hour window and FCFS engine.'}
           </p>
         </div>
 
@@ -273,22 +431,24 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
             </div>
           </div>
 
-          {/* Admin Override: Keys Secured for Weekend */}
-          {user?.role === 'ADMIN' && (
-            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300 text-amber-950 shadow-sm">
+          {/* Weekend Keys Secured Mode Toggle — Only on Admin Profile */}
+          {isAdmin && isSelectedDateWeekend && (
+            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300 text-amber-950 shadow-sm transition-all">
               <div className="flex items-start gap-2.5">
                 <div className="p-1.5 rounded-xl bg-amber-200/80 text-amber-900 shrink-0 mt-0.5">
                   <Key className="w-4 h-4" />
                 </div>
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
-                    Keys Secured for Weekend
-                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-200 text-amber-900 uppercase tracking-wider">
-                      Admin Rule Override
+                    Weekend Keys Secured Mode
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                      keysSecured ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
+                    }`}>
+                      {keysSecured ? 'Enabled' : 'Required'}
                     </span>
                   </div>
                   <div className="text-[11px] text-amber-800 mt-0.5">
-                    Studio keys are verified secured. Enables same-day and short-notice weekend booking.
+                    Studio keys are verified secured. Toggle to allow and confirm Saturday &amp; Sunday reservations.
                   </div>
                 </div>
               </div>
@@ -296,7 +456,10 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                 <input
                   type="checkbox"
                   checked={keysSecured}
-                  onChange={(e) => setKeysSecured(e.target.checked)}
+                  onChange={(e) => {
+                    setKeysSecured(e.target.checked);
+                    setErrorMsg(null);
+                  }}
                   className="sr-only peer"
                 />
                 <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-600"></div>
@@ -381,18 +544,48 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                   type="button"
                   key={item.dateStr}
                   onClick={() => setSelectedDate(item.dateStr)}
-                  className={`py-2 px-2.5 rounded-xl text-xs font-semibold border transition-all text-center ${
+                  className={`py-2 px-2.5 rounded-xl text-xs font-semibold border transition-all text-center relative ${
                     selectedDate === item.dateStr
                       ? 'bg-[#14213D] text-white border-[#14213D] shadow-sm'
                       : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   <div>{item.label}</div>
-                  <div className="text-[10px] text-slate-400 opacity-90">{item.dateStr}</div>
+                  <div className="text-[10px] opacity-80">{item.dateStr}</div>
+                  {item.isWeekend && (
+                    <div className="text-[9px] text-amber-600 font-semibold mt-0.5">Weekend</div>
+                  )}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Weekend guidance notice */}
+          {isSelectedDateWeekend && (
+            isAdmin ? (
+              !keysSecured && (
+                <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-xs text-amber-900 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold">Weekend Slot Selected</span>
+                    <p className="mt-0.5 text-amber-800">
+                      Enable the <strong>Weekend Keys Secured Mode</strong> toggle above to unlock and reserve slots for Saturday and Sunday.
+                    </p>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-blue-50 border border-blue-200 text-xs text-blue-900 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Weekend Studio Request</span>
+                  <p className="mt-0.5 text-blue-800">
+                    Weekend requests are submitted directly to Administrators for key verification and booking clearance.
+                  </p>
+                </div>
+              </div>
+            )
+          )}
 
           {/* 4. Slot Selector */}
           <div>
@@ -409,9 +602,9 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
               <div className="max-h-48 overflow-y-auto p-2 bg-slate-50 rounded-2xl border border-slate-200 grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {availability.slots.map((slot, idx) => {
                   const isSelected = selectedSlotIndex === idx;
-                  const isAdmin = user?.role === 'ADMIN';
-                  const isOverridden = !slot.is_available && isAdmin && keysSecured && Boolean(slot.can_admin_override);
-                  const isClickable = slot.is_available || isOverridden;
+                  const isWeekendBlocked = isAdmin && isSelectedDateWeekend && !keysSecured;
+                  const isOverridden = !slot.is_available && keysSecured && Boolean(slot.can_admin_override);
+                  const isClickable = !isWeekendBlocked && (slot.is_available || isOverridden);
 
                   return (
                     <button
@@ -419,9 +612,19 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                       key={slot.start_time}
                       disabled={!isClickable}
                       onClick={() => handleSlotSelect(idx)}
-                      title={!isClickable ? slot.reason : isOverridden ? 'Keys secured: Admin override active' : undefined}
+                      title={
+                        isWeekendBlocked
+                          ? 'Weekend slot: enable Weekend Keys Secured Mode above to unlock'
+                          : !isClickable
+                          ? slot.reason
+                          : isOverridden
+                          ? 'Keys secured override active'
+                          : undefined
+                      }
                       className={`p-2 rounded-xl text-xs font-semibold text-center border transition-all flex flex-col items-center justify-center ${
-                        isSelected
+                        isWeekendBlocked
+                          ? 'bg-slate-100/70 text-slate-400 border-slate-200/50 cursor-not-allowed'
+                          : isSelected
                           ? isOverridden
                             ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
                             : 'bg-[#356AE6] text-white border-[#356AE6] shadow-sm'
@@ -435,7 +638,11 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                       <span className="text-xs font-bold">
                         {slot.start_time} - {slot.end_time}
                       </span>
-                      {isOverridden ? (
+                      {isWeekendBlocked ? (
+                        <span className="text-[9px] text-amber-700 font-semibold truncate max-w-full">
+                          Keys Secured Required
+                        </span>
+                      ) : isOverridden ? (
                         <span className="text-[9px] text-amber-700 font-semibold truncate max-w-full">
                           Keys Secured
                         </span>
@@ -476,7 +683,6 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                     },
                     (_, i) => i + 1
                   ).map((multiplier) => {
-                    const isAdmin = user?.role === 'ADMIN';
                     const mins = multiplier * (availability.slot_interval_minutes || 30);
                     const canFit = selectedSlotIndex + multiplier <= availability.slots.length;
                     const endSlot = canFit ? availability.slots[selectedSlotIndex + multiplier - 1] : null;
@@ -572,10 +778,16 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || selectedSlotIndex === null}
+              disabled={isSubmitting || selectedSlotIndex === null || (!isTeamHead && isSelectedDateWeekend && !keysSecured)}
               className="flex-1 py-3 px-4 rounded-xl text-sm font-bold text-white bg-[#356AE6] hover:bg-blue-600 shadow-md shadow-blue-500/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSubmitting ? 'Securing Slot...' : 'Confirm Reservation'}
+              {isSubmitting
+                ? user?.role === 'TEAM_HEAD'
+                  ? 'Submitting Request...'
+                  : 'Securing Slot...'
+                : user?.role === 'TEAM_HEAD'
+                ? 'Submit Request for Approval'
+                : 'Confirm Reservation'}
             </button>
           </div>
         </form>

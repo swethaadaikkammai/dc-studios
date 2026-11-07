@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, Boolean
 from app.db.session import Base
 
 
@@ -14,3 +14,5 @@ class ClubSettings(Base):
     advance_booking_hours = Column(Integer, default=72, nullable=False)
     cancellation_cutoff_minutes = Column(Integer, default=0, nullable=False)
     daily_team_quota_minutes = Column(Integer, default=0, nullable=False)  # 0 means unlimited
+    # Weekend key-secured mode: when True, Team Heads CAN request weekend bookings
+    weekend_keys_secured = Column(Boolean, default=False, nullable=False)

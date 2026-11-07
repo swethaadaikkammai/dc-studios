@@ -53,6 +53,7 @@ def create_user(
             role=payload.role,
             team_id=payload.team_id,
             whatsapp_number=payload.whatsapp_number,
+            whatsapp_number_2=payload.whatsapp_number_2,
             is_active=payload.is_active
         )
     except BookingException as e:
@@ -77,6 +78,7 @@ def update_user(
             role=payload.role,
             team_id=payload.team_id,
             whatsapp_number=payload.whatsapp_number,
+            whatsapp_number_2=payload.whatsapp_number_2,
             is_active=payload.is_active,
             password=payload.password
         )
@@ -125,7 +127,8 @@ def update_settings(
         maximum_duration_minutes=payload.maximum_duration_minutes,
         advance_booking_hours=payload.advance_booking_hours,
         cancellation_cutoff_minutes=payload.cancellation_cutoff_minutes,
-        daily_team_quota_minutes=payload.daily_team_quota_minutes
+        daily_team_quota_minutes=payload.daily_team_quota_minutes,
+        weekend_keys_secured=payload.weekend_keys_secured
     )
 
 
@@ -249,15 +252,18 @@ def update_admin_reminder_phone(
     admin_user: User = Depends(require_role(["ADMIN"]))
 ):
     """
-    Updates the logged-in administrator's alert phone number for receiving
+    Updates the logged-in administrator's alert phone numbers for receiving
     session reminders (5 hours prior & 1 hour prior).
     """
-    admin_user.whatsapp_number = payload.phone_number.strip()
+    admin_user.whatsapp_number = payload.phone_number.strip() if payload.phone_number else None
+    if payload.phone_number_2 is not None:
+        admin_user.whatsapp_number_2 = payload.phone_number_2.strip() if payload.phone_number_2.strip() else None
     db.commit()
     db.refresh(admin_user)
     return {
-        "message": "Admin reminder phone number updated successfully.",
+        "message": "Admin reminder phone numbers updated successfully.",
         "admin_id": admin_user.id,
         "username": admin_user.username,
-        "whatsapp_number": admin_user.whatsapp_number
+        "whatsapp_number": admin_user.whatsapp_number,
+        "whatsapp_number_2": admin_user.whatsapp_number_2
     }

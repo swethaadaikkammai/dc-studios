@@ -8,6 +8,7 @@ class AdminPhoneInfo(BaseModel):
     username: str
     email: str
     whatsapp_number: Optional[str] = None
+    whatsapp_number_2: Optional[str] = None
 
 
 class ReminderRuleInfo(BaseModel):
@@ -58,3 +59,4 @@ class CheckRemindersResponse(BaseModel):
 
 class AdminPhoneUpdate(BaseModel):
     phone_number: str
+    phone_number_2: Optional[str] = None

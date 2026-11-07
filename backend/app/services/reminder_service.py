@@ -51,11 +51,11 @@ class ReminderService:
         purpose = booking.purpose or "Routine / Fest Practice"
 
         if milestone == "5H":
-            header = "⏰ *DC STUDIOS — 5-HOUR SESSION REMINDER*"
+            header = "*DC STUDIOS — 5-HOUR SESSION REMINDER*"
             notice_lead = "starts in approximately 5 hours"
             action_desc = "Please verify room availability, ensure studio keys are in place, and check equipment readiness."
         else:
-            header = "🚨 *DC STUDIOS — 1-HOUR FINAL SESSION REMINDER*"
+            header = "*DC STUDIOS — 1-HOUR FINAL SESSION REMINDER*"
             notice_lead = "starts in 1 hour"
             action_desc = "Please ensure the studio doors/keys are unlocked and dancers have clear access."
 
@@ -71,7 +71,7 @@ class ReminderService:
             f"*Slot Timing:* {start_str} - {end_str} IST ({duration_mins} mins)\n"
             f"*Purpose:* {purpose}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"ℹ️ *Admin Action:*\n"
+            f"*Admin Action:*\n"
             f"{action_desc}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"_Automated Reminder Engine • DC Studios Portal_"
@@ -116,6 +116,26 @@ class ReminderService:
         )
         db.add(outbox)
 
+        # Secondary Admin phone outbox dispatch if configured
+        phone_2 = admin.whatsapp_number_2
+        if phone_2 and phone_2.strip():
+            wa_url_2 = WhatsAppService.build_whatsapp_url(phone_2.strip(), text)
+            outbox_2 = OutboxEvent(
+                event_type=f"ADMIN_REMINDER_{milestone}",
+                payload=json.dumps({
+                    "booking_id": booking.id,
+                    "milestone": milestone,
+                    "team_id": booking.team_id,
+                    "recipient_admin_id": admin.id,
+                    "recipient_username": admin.username,
+                    "recipient_phone": phone_2.strip(),
+                    "reminder_text": text,
+                    "whatsapp_url": wa_url_2,
+                    "status": "DISPATCHED"
+                }, default=str)
+            )
+            db.add(outbox_2)
+
         # 2. Immutable Audit Log (used for deduplication)
         team_name = booking.team.name if booking.team else f"Team #{booking.team_id}"
         room_name = booking.room.name if booking.room else f"Room #{booking.room_id}"
@@ -156,7 +176,7 @@ class ReminderService:
             return []
 
         # Find active confirmed bookings starting in the future
-        max_lookahead = server_now + timedelta(hours=6)
+        max_lookahead = server_now + timedelta(hours=24)  # Expanded for testing; default is 6h
         upcoming_bookings = db.query(Booking).filter(
             Booking.status == "CONFIRMED",
             Booking.start_at > server_now,
@@ -169,8 +189,8 @@ class ReminderService:
             start_tz = ensure_campus_timezone(b.start_at)
             time_until_start = start_tz - server_now
 
-            # Check 5-Hour Reminder: 1h < lead_time <= 5h
-            if timedelta(hours=1) < time_until_start <= timedelta(hours=5):
+            # Check 5-Hour Reminder: 1h < lead_time <= 24h (expanded for testing; normally 5h)
+            if timedelta(hours=1) < time_until_start <= timedelta(hours=24):
                 if not cls.has_reminder_been_sent(db, b.id, "5H"):
                     for admin in admins:
                         rec = cls.dispatch_reminder_for_booking(db, b, "5H", admin)
@@ -200,7 +220,8 @@ class ReminderService:
                 id=a.id,
                 username=a.username,
                 email=a.email,
-                whatsapp_number=a.whatsapp_number
+                whatsapp_number=a.whatsapp_number,
+                whatsapp_number_2=a.whatsapp_number_2
             )
             for a in admins
         ]

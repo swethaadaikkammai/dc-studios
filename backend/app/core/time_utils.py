@@ -17,6 +17,14 @@ def get_authoritative_server_now() -> datetime:
 
 def ensure_campus_timezone(dt: datetime) -> datetime:
     """Ensures a datetime object is localized to Asia/Kolkata."""
+    if isinstance(dt, str):
+        # Handle string ISO format if passed
+        clean_str = dt.replace("Z", "+00:00")
+        try:
+            dt = datetime.fromisoformat(clean_str)
+        except Exception:
+            import dateutil.parser
+            dt = dateutil.parser.parse(dt)
     if dt.tzinfo is None:
         # If naive, assume it's in campus local time
         return campus_tz.localize(dt)

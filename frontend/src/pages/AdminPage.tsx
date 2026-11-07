@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useDeviceNotifications } from '../context/NotificationContext';
 import { api } from '../services/api';
 import {
   User,
@@ -8,7 +9,8 @@ import {
   ClubSettings,
   AuditLog,
   BoardPermission,
-  ReminderStatusResponse
+  ReminderStatusResponse,
+  BookingApproval
 } from '../types';
 import {
   ShieldAlert,
@@ -31,13 +33,29 @@ import {
   MessageSquare,
   Send,
   RefreshCw,
-  Check
+  Check,
+  CalendarPlus,
+  ExternalLink,
+  Zap,
+  Trophy
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
+const formatDetailedMs = (isoStr: string, epochMs?: number | null) => {
+  try {
+    const d = epochMs ? new Date(epochMs) : new Date(isoStr);
+    const dateFormatted = format(d, 'dd MMM yyyy, hh:mm:ss');
+    const ms = String(d.getMilliseconds()).padStart(3, '0');
+    const ampm = format(d, 'a');
+    return `${dateFormatted}.${ms} ${ampm} IST`;
+  } catch {
+    return isoStr;
+  }
+};
+
 export const AdminPage: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'reminders' | 'audit'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'reminders' | 'audit' | 'approvals'>('approvals');
 
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -57,6 +75,7 @@ export const AdminPage: React.FC = () => {
   const [newRole, setNewRole] = useState('BOARD_MEMBER');
   const [newTeamId, setNewTeamId] = useState<string>('');
   const [newWhatsApp, setNewWhatsApp] = useState('');
+  const [newWhatsApp2, setNewWhatsApp2] = useState('');
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   // Edit User State
@@ -67,6 +86,7 @@ export const AdminPage: React.FC = () => {
   const [editRole, setEditRole] = useState('BOARD_MEMBER');
   const [editTeamId, setEditTeamId] = useState<string>('');
   const [editWhatsApp, setEditWhatsApp] = useState('');
+  const [editWhatsApp2, setEditWhatsApp2] = useState('');
   const [editIsActive, setEditIsActive] = useState<boolean>(true);
 
   // Delete User State
@@ -81,17 +101,94 @@ export const AdminPage: React.FC = () => {
   // Reminder System State
   const [reminderData, setReminderData] = useState<ReminderStatusResponse | null>(null);
   const [adminPhoneInput, setAdminPhoneInput] = useState('');
+  const [adminPhoneInput2, setAdminPhoneInput2] = useState('');
   const [isUpdatingPhone, setIsUpdatingPhone] = useState(false);
   const [isCheckingReminders, setIsCheckingReminders] = useState(false);
   const [reminderCheckMessage, setReminderCheckMessage] = useState<string | null>(null);
+
+  const {
+    notificationsEnabled: appNotificationsEnabled,
+    requestPermission: requestAppNotificationPermission,
+    playNotificationSound,
+    testNotification,
+  } = useDeviceNotifications();
+
+  // Approval Requests State
+  const [approvals, setApprovals] = useState<BookingApproval[]>([]);
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<string>('ALL');
+  const [actioningApprovalId, setActioningApprovalId] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState<{ [id: number]: string }>({});
+  const [isRefreshingApprovals, setIsRefreshingApprovals] = useState(false);
+  const [approvalFeedback, setApprovalFeedback] = useState<{ id: number; message: string; whatsappUrl?: string } | null>(null);
+
+  const loadApprovals = async () => {
+    setIsRefreshingApprovals(true);
+    try {
+      const apprv = await api.getAllApprovalRequests();
+      setApprovals(apprv);
+    } catch (e: any) {
+      console.error('Failed to load approval requests:', e);
+    } finally {
+      setIsRefreshingApprovals(false);
+    }
+  };
+
+  const handleApprove = async (id: number) => {
+    setActioningApprovalId(id);
+    setMessage(null);
+    setErrorMessage(null);
+    setApprovalFeedback(null);
+    try {
+      const res = await api.approveRequest(id);
+      const confUrl = res.whatsapp_confirmation_url || res.confirmation_whatsapp_url;
+
+      // Automatically trigger opening WhatsApp in a new tab
+      if (confUrl) {
+        window.open(confUrl, '_blank');
+      }
+
+      setMessage(`Booking request #${id} approved successfully! Confirmed studio booking created.`);
+      setApprovalFeedback({
+        id,
+        message: `Booking request #${id} approved! Confirmed studio booking created.`,
+        whatsappUrl: confUrl || undefined,
+      });
+      await loadApprovals();
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'Failed to approve booking request.');
+    } finally {
+      setActioningApprovalId(null);
+    }
+  };
+
+  const handleReject = async (id: number) => {
+    setActioningApprovalId(id);
+    setMessage(null);
+    setErrorMessage(null);
+    try {
+      const reason = rejectReason[id] || 'Slot rejected by Administrator';
+      await api.rejectRequest(id, reason);
+      setMessage(`Booking request #${id} has been rejected.`);
+      await loadApprovals();
+    } catch (e: any) {
+      setErrorMessage(e?.message || 'Failed to reject booking request.');
+    } finally {
+      setActioningApprovalId(null);
+    }
+  };
 
   const loadReminderData = async () => {
     try {
       const res = await api.getRemindersStatus();
       setReminderData(res);
       const currentAdmin = res.admin_phone_numbers.find((a) => a.id === user?.id) || res.admin_phone_numbers[0];
-      if (currentAdmin && currentAdmin.whatsapp_number) {
-        setAdminPhoneInput(currentAdmin.whatsapp_number);
+      if (currentAdmin) {
+        if (currentAdmin.whatsapp_number) {
+          setAdminPhoneInput(currentAdmin.whatsapp_number);
+        }
+        if (currentAdmin.whatsapp_number_2) {
+          setAdminPhoneInput2(currentAdmin.whatsapp_number_2);
+        }
       }
     } catch (err: any) {
       console.error('Failed to load reminder status:', err);
@@ -117,8 +214,8 @@ export const AdminPage: React.FC = () => {
     if (!adminPhoneInput.trim()) return;
     setIsUpdatingPhone(true);
     try {
-      await api.updateAdminReminderPhone(adminPhoneInput.trim());
-      setMessage('Admin reminder phone number updated successfully.');
+      await api.updateAdminReminderPhone(adminPhoneInput.trim(), adminPhoneInput2.trim() || undefined);
+      setMessage('Admin reminder phone numbers updated successfully.');
       await loadReminderData();
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to update reminder phone.');
@@ -130,13 +227,14 @@ export const AdminPage: React.FC = () => {
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
-      const [u, t, r, s, a, p] = await Promise.all([
+      const [u, t, r, s, a, p, apprv] = await Promise.all([
         api.getUsers(),
         api.getTeams(),
         api.getRooms(),
         api.getSettings(),
         api.getAuditLogs(100),
         api.getBoardPermissions(),
+        api.getAllApprovalRequests(),
       ]);
       setUsers(u);
       setTeams(t);
@@ -145,6 +243,7 @@ export const AdminPage: React.FC = () => {
       setSettingsForm(s);
       setAuditLogs(a);
       setPermissions(p);
+      setApprovals(apprv);
     } catch (e: any) {
       setErrorMessage(e?.message || 'Failed to load administrator data.');
     } finally {
@@ -162,6 +261,21 @@ export const AdminPage: React.FC = () => {
     }
   }, [activeTab]);
 
+  // Real-time automatic background polling
+  useEffect(() => {
+    const pollInterval = setInterval(async () => {
+      try {
+        if (activeTab === 'reminders') {
+          const res = await api.getRemindersStatus();
+          setReminderData(res);
+        }
+      } catch (e) {
+        // silent polling
+      }
+    }, 30000); // Poll every 30 seconds
+    return () => clearInterval(pollInterval);
+  }, [activeTab]);
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setMessage(null);
@@ -174,12 +288,14 @@ export const AdminPage: React.FC = () => {
         role: newRole,
         team_id: newTeamId ? Number(newTeamId) : null,
         whatsapp_number: newWhatsApp.trim() || undefined,
+        whatsapp_number_2: newWhatsApp2.trim() || undefined,
       });
       setMessage(`User @${newUsername} provisioned successfully with WhatsApp ${newWhatsApp || 'not set'}.`);
       setNewUsername('');
       setNewEmail('');
       setNewPassword('');
       setNewWhatsApp('');
+      setNewWhatsApp2('');
       setIsCreatingUser(false);
       loadAdminData();
     } catch (err: any) {
@@ -204,6 +320,7 @@ export const AdminPage: React.FC = () => {
     setEditRole(u.role);
     setEditTeamId(u.team_id ? String(u.team_id) : '');
     setEditWhatsApp(u.whatsapp_number || '');
+    setEditWhatsApp2(u.whatsapp_number_2 || '');
     setEditIsActive(u.is_active);
   };
 
@@ -219,6 +336,7 @@ export const AdminPage: React.FC = () => {
         role: editRole,
         team_id: editTeamId ? Number(editTeamId) : null,
         whatsapp_number: editWhatsApp.trim() || undefined,
+        whatsapp_number_2: editWhatsApp2.trim() || undefined,
         is_active: editIsActive,
       };
       if (editPassword.trim()) {
@@ -315,9 +433,22 @@ export const AdminPage: React.FC = () => {
       </div>
 
       {message && (
-        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>{message}</span>
+        <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex flex-wrap items-center justify-between gap-2 shadow-sm">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{message}</span>
+          </div>
+          {approvalFeedback?.whatsappUrl && (
+            <a
+              href={approvalFeedback.whatsappUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm animate-pulse"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Send Confirmation on WhatsApp
+            </a>
+          )}
         </div>
       )}
 
@@ -330,6 +461,20 @@ export const AdminPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100 rounded-2xl w-fit text-xs font-bold">
+        <button
+          onClick={() => setActiveTab('approvals')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'approvals' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <CalendarPlus className="w-3.5 h-3.5 text-blue-600" />
+          <span>Booking Approvals</span>
+          {approvals.filter(a => a.approval_status === 'PENDING').length > 0 && (
+            <span className="ml-1 px-1.5 py-0.2 bg-amber-500 text-white rounded-full text-[10px]">
+              {approvals.filter(a => a.approval_status === 'PENDING').length}
+            </span>
+          )}
+        </button>
         <button
           onClick={() => setActiveTab('users')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
@@ -379,6 +524,314 @@ export const AdminPage: React.FC = () => {
           <History className="w-3.5 h-3.5" /> Audit Trail ({auditLogs.length})
         </button>
       </div>
+
+      {/* Tab 0: Booking Approvals (Team Head Requests) */}
+      {activeTab === 'approvals' && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <CalendarPlus className="w-4 h-4 text-blue-600" />
+                Team Head Booking Requests
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Review, approve, or reject studio requests submitted by Team Heads. Approving immediately converts the request into a confirmed booking.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={loadApprovals}
+                disabled={isRefreshingApprovals}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingApprovals ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          {/* Status Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((filter) => {
+              const count =
+                filter === 'ALL'
+                  ? approvals.length
+                  : approvals.filter((a) => a.approval_status === filter).length;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setApprovalStatusFilter(filter)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
+                    approvalStatusFilter === filter
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {filter} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Slot Race & Millisecond Conflict Alert Banner */}
+          {approvals.some((a) => a.approval_status === 'PENDING' && a.has_conflict) && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 text-xs text-amber-950 space-y-2 shadow-sm">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold">
+                    <Zap className="w-4 h-4 fill-current" />
+                  </div>
+                  <div>
+                    <h4 className="font-extrabold text-slate-900 text-sm">
+                      Race Condition Detected: Competing Slot Requests
+                    </h4>
+                    <p className="text-[11px] text-amber-800">
+                      Two or more Team Heads requested the same studio room for overlapping times.
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-mono font-extrabold bg-amber-200/90 text-amber-900 border border-amber-300 uppercase tracking-wider">
+                  Millisecond Precision Active
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-700 bg-white/80 p-2.5 rounded-xl border border-amber-200/60 leading-relaxed">
+                VIT DC Studios operates on an authoritative <strong>First-Come, First-Served (FCFS)</strong> engine. 
+                The system audits arrival timestamps down to the millisecond. The <strong>Priority #1 (FCFS Winner)</strong> badge marks the earliest submission.
+              </p>
+            </div>
+          )}
+
+          {/* Requests List */}
+          {approvals.filter((a) => approvalStatusFilter === 'ALL' || a.approval_status === approvalStatusFilter).length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-sm">
+              No booking requests found under status "{approvalStatusFilter}".
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {approvals
+                .filter((a) => approvalStatusFilter === 'ALL' || a.approval_status === approvalStatusFilter)
+                .map((req) => (
+                  <div
+                    key={req.id}
+                    className={`p-5 rounded-2xl border transition-all space-y-3 shadow-sm ${
+                      req.has_conflict && req.approval_status === 'PENDING'
+                        ? req.is_first_requester
+                          ? 'border-emerald-300 bg-emerald-50/20'
+                          : 'border-amber-300 bg-amber-50/20'
+                        : 'border-slate-200/90 bg-slate-50/50 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 text-sm">Request #{req.id}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800">
+                            {req.team_name || `Team #${req.team_id}`}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700">
+                            {req.room_name || `Room #${req.room_id}`}
+                          </span>
+                          {req.is_weekend_request === 'true' && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              Weekend Request
+                            </span>
+                          )}
+                          {req.has_conflict && req.approval_status === 'PENDING' && (
+                            <span
+                              className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold flex items-center gap-1 ${
+                                req.is_first_requester
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : 'bg-amber-100 text-amber-900 border border-amber-300'
+                              }`}
+                            >
+                              <Zap className="w-3 h-3 fill-current" />
+                              {req.is_first_requester
+                                ? `Priority #1: Earliest (${Math.abs(req.conflict_delta_ms || 0)}ms lead)`
+                                : `Priority #2: Later (+${Math.abs(req.conflict_delta_ms || 0)}ms lag)`}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span>Requested by <strong className="text-slate-800">@{req.requester_username}</strong> on</span>
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px] font-bold bg-slate-100 text-slate-800 px-2 py-0.5 rounded border border-slate-200">
+                            <Clock className="w-3 h-3 text-slate-400" />
+                            {formatDetailedMs(req.created_at, req.created_at_ms)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Status Badge */}
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                          req.approval_status === 'PENDING'
+                            ? req.has_conflict
+                              ? req.is_first_requester
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : req.approval_status === 'APPROVED'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                            : 'bg-rose-100 text-rose-800 border border-rose-300'
+                        }`}
+                      >
+                        {req.approval_status}
+                      </span>
+                    </div>
+
+                    {/* Competing Millisecond Conflict Box */}
+                    {req.has_conflict && req.competing_request && req.approval_status === 'PENDING' && (
+                      <div
+                        className={`p-3.5 rounded-xl border text-xs space-y-2.5 ${
+                          req.is_first_requester
+                            ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950'
+                            : 'bg-amber-50/90 border-amber-300 text-amber-950'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            {req.is_first_requester ? (
+                              <Trophy className="w-4 h-4 text-emerald-600 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                            )}
+                            <span className="font-extrabold text-xs uppercase tracking-wide">
+                              {req.is_first_requester
+                                ? 'First-Come, First-Served Priority Winner'
+                                : `Competing Slot Conflict with Request #${req.competing_request.rival_approval_id}`}
+                            </span>
+                          </div>
+                          <span className="font-mono font-extrabold text-[11px] px-2.5 py-0.5 rounded-full bg-white shadow-xs border border-slate-200">
+                            {req.is_first_requester
+                              ? `-${Math.abs(req.conflict_delta_ms || 0)} ms earlier`
+                              : `+${Math.abs(req.conflict_delta_ms || 0)} ms later`}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                          <div className="p-2 bg-white/95 rounded-lg border border-slate-200 space-y-0.5">
+                            <span className="text-slate-400 block font-semibold">
+                              This Request ({req.team_name}):
+                            </span>
+                            <span className="font-mono font-bold text-slate-900 block">
+                              {formatDetailedMs(req.created_at, req.created_at_ms)}
+                            </span>
+                          </div>
+                          <div className="p-2 bg-white/95 rounded-lg border border-slate-200 space-y-0.5">
+                            <span className="text-slate-400 block font-semibold">
+                              Rival Request ({req.competing_request.rival_team_name}):
+                            </span>
+                            <span className="font-mono font-bold text-slate-900 block">
+                              {formatDetailedMs(
+                                req.competing_request.rival_requested_at,
+                                req.competing_request.rival_created_at_ms
+                              )}
+                            </span>
+                          </div>
+                        </div>
+
+                        <p className="text-[11px] opacity-90 leading-relaxed">
+                          {req.is_first_requester ? (
+                            <span>
+                              This team submitted <strong>{Math.abs(req.conflict_delta_ms || 0)} milliseconds</strong> prior to{' '}
+                              <strong>{req.competing_request.rival_team_name}</strong> (@{req.competing_request.rival_requester_username}). 
+                              Approving this request guarantees fairness under the FCFS booking policy.
+                            </span>
+                          ) : (
+                            <span>
+                              This team submitted <strong>{Math.abs(req.conflict_delta_ms || 0)} milliseconds</strong> AFTER{' '}
+                              <strong>{req.competing_request.rival_team_name}</strong> (@{req.competing_request.rival_requester_username}). 
+                              Approving the earlier request will automatically reject this slot due to room overlap.
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Timing & Details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200">
+                      <div>
+                        <span className="text-slate-400 block">Requested Slot:</span>
+                        <span className="font-bold text-slate-800">
+                          {format(parseISO(req.start_at), 'EEE, dd MMM yyyy')} · {format(parseISO(req.start_at), 'hh:mm a')} - {format(parseISO(req.end_at), 'hh:mm a')} IST
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 block">Purpose / Rehearsal Focus:</span>
+                        <span className="font-medium text-slate-700">
+                          {req.purpose || 'Routine rehearsal'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* WhatsApp notification action */}
+                    {req.admin_whatsapp_url && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <a
+                          href={req.admin_whatsapp_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1.5 text-emerald-600 hover:text-emerald-700 font-semibold"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          Open Pre-Filled WhatsApp Chat with Admin
+                        </a>
+                      </div>
+                    )}
+
+                    {/* Review Info if Approved or Rejected */}
+                    {req.approval_status === 'APPROVED' && req.booking_id && (
+                      <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl font-medium flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        Approved and confirmed as Booking #{req.booking_id}
+                      </div>
+                    )}
+
+                    {req.approval_status === 'REJECTED' && req.rejection_reason && (
+                      <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 p-2.5 rounded-xl font-medium flex items-center gap-2">
+                        <XCircle className="w-4 h-4 text-rose-600" />
+                        Rejection reason: {req.rejection_reason}
+                      </div>
+                    )}
+
+                    {/* Admin Actions if PENDING */}
+                    {req.approval_status === 'PENDING' && (
+                      <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-200">
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            placeholder="Optional rejection reason (if rejecting)..."
+                            value={rejectReason[req.id] || ''}
+                            onChange={(e) =>
+                              setRejectReason({ ...rejectReason, [req.id]: e.target.value })
+                            }
+                            className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-white"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleReject(req.id)}
+                            disabled={actioningApprovalId === req.id}
+                            className="px-3.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 font-bold text-xs transition-colors"
+                          >
+                            Reject Request
+                          </button>
+                          <button
+                            onClick={() => handleApprove(req.id)}
+                            disabled={actioningApprovalId === req.id}
+                            className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            Approve & Reserve Slot
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tab 1: Member Accounts */}
       {activeTab === 'users' && (
@@ -434,9 +887,16 @@ export const AdminPage: React.FC = () => {
                 </select>
                 <input
                   type="text"
-                  placeholder="WhatsApp Contact (e.g. +91 98765 43210)"
+                  placeholder="Primary WhatsApp (+91 ...)"
                   value={newWhatsApp}
                   onChange={(e) => setNewWhatsApp(e.target.value)}
+                  className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium"
+                />
+                <input
+                  type="text"
+                  placeholder="Secondary WhatsApp (Optional)"
+                  value={newWhatsApp2}
+                  onChange={(e) => setNewWhatsApp2(e.target.value)}
                   className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium"
                 />
                 {newRole === 'TEAM_HEAD' && (
@@ -500,9 +960,17 @@ export const AdminPage: React.FC = () => {
                     <td className="py-3 px-4">{u.team?.name || '—'}</td>
                     <td className="py-3 px-4">
                       {u.whatsapp_number ? (
-                        <div className="inline-flex items-center gap-1.5 text-slate-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                          <span>{u.whatsapp_number}</span>
+                        <div className="space-y-1">
+                          <div className="inline-flex items-center gap-1.5 text-slate-800 font-semibold bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            <span>{u.whatsapp_number}</span>
+                          </div>
+                          {u.whatsapp_number_2 && (
+                            <div className="inline-flex items-center gap-1.5 text-slate-700 font-medium bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                              <span>{u.whatsapp_number_2}</span>
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <span className="text-slate-400 text-[11px] italic">Not set</span>
@@ -640,18 +1108,34 @@ export const AdminPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  WhatsApp Contact Number
-                </label>
-                <input
-                  type="text"
-                  placeholder="+91 98765 43210"
-                  value={editWhatsApp}
-                  onChange={(e) => setEditWhatsApp(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">Used for automated digital booking pass dispatch</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Primary WhatsApp Contact Number
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+91 7010734009"
+                    value={editWhatsApp}
+                    onChange={(e) => setEditWhatsApp(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Primary contact for notifications and studio pass dispatch</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                    Secondary WhatsApp Contact Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+91 98765 43210"
+                    value={editWhatsApp2}
+                    onChange={(e) => setEditWhatsApp2(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-0.5">Second phone number for admin alerts and team follow-ups</p>
+                </div>
               </div>
 
               <div className="pt-2 border-t border-slate-100">
@@ -818,13 +1302,13 @@ export const AdminPage: React.FC = () => {
           <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
             <span className="font-bold text-slate-700">Active Campus Policy:</span>
             <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800 font-semibold">
-              ⏰ {settings.opening_time} - {settings.closing_time} IST
+              {settings.opening_time} - {settings.closing_time} IST
             </span>
             <span className="px-2.5 py-1 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 font-bold">
-              ⏱️ Max {settings.maximum_duration_minutes || 240} mins ({((settings.maximum_duration_minutes || 240) / 60).toFixed(0)} hrs)
+              Max {settings.maximum_duration_minutes || 240} mins ({((settings.maximum_duration_minutes || 240) / 60).toFixed(0)} hrs)
             </span>
             <span className="px-2.5 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
-              ⏳ {settings.advance_booking_hours}h advance window
+              {settings.advance_booking_hours}h advance window
             </span>
           </div>
 
@@ -951,11 +1435,23 @@ export const AdminPage: React.FC = () => {
                 </h3>
               </div>
               <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-                Monitors confirmed bookings and automatically notifies Administrators on WhatsApp at 5 hours prior (studio keys & room prep) and 1 hour prior (final entry clearance).
+                Monitors confirmed bookings and automatically notifies Administrators on WhatsApp and device notifications at 5 hours prior (studio keys & room prep) and 1 hour prior (final entry clearance).
               </p>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                onClick={requestAppNotificationPermission}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
+                  appNotificationsEnabled
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                    : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200'
+                }`}
+                title="Toggle Real-Time Native App Notifications"
+              >
+                <Bell className="w-3.5 h-3.5" />
+                {appNotificationsEnabled ? 'App Alerts: Active' : 'Enable App Notifications'}
+              </button>
               <button
                 onClick={loadReminderData}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors cursor-pointer"
@@ -966,18 +1462,40 @@ export const AdminPage: React.FC = () => {
               <button
                 onClick={handleTriggerCheck}
                 disabled={isCheckingReminders}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#356AE6] hover:bg-blue-600 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#14213D] hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm disabled:opacity-50 cursor-pointer"
+                title="Manually verify reminders immediately"
               >
                 {isCheckingReminders ? (
                   <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scanning Now...
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Scanning...
                   </>
                 ) : (
                   <>
-                    <Send className="w-3.5 h-3.5" /> Scan & Trigger Reminders Now
+                    <Send className="w-3.5 h-3.5" /> Trigger Test Scan Now
                   </>
                 )}
               </button>
+            </div>
+          </div>
+
+          {/* Real-time automated background worker status */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950">
+            <div className="flex items-start sm:items-center gap-3">
+              <span className="relative flex h-3 w-3 mt-1 sm:mt-0 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div>
+                <div className="font-extrabold text-emerald-900 flex items-center gap-2">
+                  Automated Real-Time Background Daemon Active
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-800 uppercase tracking-wider">
+                    24/7 Automated
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-700 mt-0.5">
+                  The backend background worker continuously reads studio bookings and dispatches 5h &amp; 1h notifications in real time. No manual triggers required.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -1003,17 +1521,31 @@ export const AdminPage: React.FC = () => {
               <form onSubmit={handleSavePhone} className="space-y-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
-                    WhatsApp Phone Number
+                    Primary WhatsApp Phone Number
                   </label>
                   <input
                     type="text"
                     value={adminPhoneInput}
                     onChange={(e) => setAdminPhoneInput(e.target.value)}
-                    placeholder="+91 98765 43210"
+                    placeholder="+91 7010734009"
                     required
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Include country code (e.g. +91)</p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-1">
+                    Secondary WhatsApp Phone Number (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={adminPhoneInput2}
+                    onChange={(e) => setAdminPhoneInput2(e.target.value)}
+                    placeholder="+91 98765 43210"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">Optional backup admin contact for alerts</p>
                 </div>
 
                 <button
@@ -1021,7 +1553,7 @@ export const AdminPage: React.FC = () => {
                   disabled={isUpdatingPhone}
                   className="w-full py-2.5 rounded-xl bg-[#14213D] hover:bg-slate-800 text-white text-xs font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  {isUpdatingPhone ? 'Saving...' : 'Save Phone Number'}
+                  {isUpdatingPhone ? 'Saving...' : 'Save Phone Numbers'}
                 </button>
               </form>
 
@@ -1032,9 +1564,17 @@ export const AdminPage: React.FC = () => {
                   </span>
                   <div className="space-y-1.5">
                     {reminderData.admin_phone_numbers.map((a) => (
-                      <div key={a.id} className="flex items-center justify-between text-xs p-2 rounded-xl bg-slate-50 border border-slate-100">
-                        <span className="font-bold text-slate-800">@{a.username}</span>
-                        <span className="font-mono text-slate-600 text-[11px]">{a.whatsapp_number || 'No phone set'}</span>
+                      <div key={a.id} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 space-y-1 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800">@{a.username}</span>
+                          <span className="font-mono text-emerald-700 text-[11px] font-semibold">{a.whatsapp_number || 'No primary set'}</span>
+                        </div>
+                        {a.whatsapp_number_2 && (
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 pt-0.5 border-t border-slate-200/50">
+                            <span>Backup:</span>
+                            <span className="font-mono text-blue-700 font-semibold">{a.whatsapp_number_2}</span>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

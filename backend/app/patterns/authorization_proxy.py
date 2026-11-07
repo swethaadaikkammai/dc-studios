@@ -91,11 +91,11 @@ class BookingAuthorizationProxy(IBookingService):
             if actor.role != "ADMIN":
                 raise AuthorizationException("Only administrators can bend weekend booking rules when keys are secured.")
 
-        # Team Heads cannot create bookings
+        # Team Heads submit approval requests (handled via /bookings/request endpoint, not here)
         if actor.role == "TEAM_HEAD":
             raise AuthorizationException(
-                "Team Heads are not authorized to create studio bookings. "
-                "Only Board Members with team booking delegation or Administrators may create reservations."
+                "Team Heads must submit booking requests for admin approval. "
+                "Use the booking request form — once approved the booking will be confirmed."
             )
 
         # Board Members must have explicit permission for the requested team

@@ -50,9 +50,10 @@ class WhatsAppService:
             f"*Routine / Purpose:* {booking.purpose or 'Fest Practice'}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"*Mandatory Studio Entry Rules:*\n"
-            f"1. Every member must present their physical VIT Student ID card.\n"
-            f"2. Eating is strictly prohibited inside the dance studio.\n"
-            f"3. Vacate the dance room promptly at {end_str} IST.\n"
+            f"1. Eating is strictly prohibited inside the dance studio.\n"
+            f"2. Vacate the dance room promptly at {end_str} IST.\n"
+            f"3. Ensure to not litter the place.\n"
+            f"4. Ensure all items are picked up and all lights/ac is off before leaving the venue.\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"_Automated Dispatch • DC Studios Management System_"
         )
@@ -60,10 +61,16 @@ class WhatsAppService:
     @classmethod
     def build_whatsapp_url(cls, phone_number: Optional[str], text: Optional[str] = None) -> Optional[str]:
         if not phone_number:
+            if text:
+                encoded_text = urllib.parse.quote(text)
+                return f"https://api.whatsapp.com/send?text={encoded_text}"
             return None
         # Normalize phone: extract only digits
         clean_phone = re.sub(r"[^\d]", "", str(phone_number))
         if not clean_phone:
+            if text:
+                encoded_text = urllib.parse.quote(text)
+                return f"https://api.whatsapp.com/send?text={encoded_text}"
             return None
         # Default to India +91 if 10-digit number is provided
         if len(clean_phone) == 10:
@@ -72,6 +79,48 @@ class WhatsAppService:
             encoded_text = urllib.parse.quote(text)
             return f"https://api.whatsapp.com/send?phone={clean_phone}&text={encoded_text}"
         return f"https://api.whatsapp.com/send?phone={clean_phone}"
+
+    @classmethod
+    def format_approval_confirmation_text(
+        cls,
+        booking: Booking,
+        team_head: Optional[User] = None,
+        admin: Optional[User] = None,
+        approval_id: Optional[int] = None
+    ) -> str:
+        start_tz = ensure_campus_timezone(booking.start_at)
+        end_tz = ensure_campus_timezone(booking.end_at)
+
+        start_str = start_tz.strftime("%I:%M %p")
+        end_str = end_tz.strftime("%I:%M %p")
+        date_str = start_tz.strftime("%A, %d %B %Y")
+        duration_mins = int((end_tz - start_tz).total_seconds() / 60)
+
+        team_name = booking.team.name if booking.team else f"Team #{booking.team_id}"
+        room_name = booking.room.name if booking.room else f"Room #{booking.room_id}"
+        head_name = team_head.username if team_head else "Team Leader"
+        admin_name = admin.username if admin else "Admin"
+        req_ref = f" (Request #{approval_id})" if approval_id else ""
+
+        return (
+            f"*DC STUDIOS — BOOKING APPROVED & CONFIRMED!*{req_ref}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Hello @{head_name}, your studio booking request has been *APPROVED* by @{admin_name}!\n\n"
+            f"*Pass ID:* #{booking.id}\n"
+            f"*Dance Team:* {team_name}\n"
+            f"*Studio Venue:* {room_name}\n"
+            f"*Session Date:* {date_str}\n"
+            f"*Slot Timing:* {start_str} - {end_str} IST ({duration_mins} mins)\n"
+            f"*Routine / Purpose:* {booking.purpose or 'Routine Practice'}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"*Mandatory Studio Entry Rules:*\n"
+            f"1. Eating is strictly prohibited inside the dance studio.\n"
+            f"2. Vacate the dance room promptly at {end_str} IST.\n"
+            f"3. Ensure to not litter the place.\n"
+            f"4. Ensure all items are picked up and all lights/ac is off before leaving the venue.\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"_Automated Confirmation • DC Studios Management System_"
+        )
 
     @classmethod
     def get_pass_info(cls, booking: Booking, db: Session) -> Optional[WhatsAppPassInfo]:

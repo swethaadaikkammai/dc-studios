@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
 from typing import Tuple, TYPE_CHECKING
 from app.core.exceptions import InvalidStateTransitionException
+from app.core.time_utils import ensure_campus_timezone
 
 if TYPE_CHECKING:
     from app.models.booking import Booking
@@ -46,14 +47,18 @@ class ConfirmedState(BookingState):
         return "CONFIRMED"
 
     def can_cancel(self, booking: 'Booking', user: 'User', server_now: datetime, cutoff_minutes: int = 0) -> Tuple[bool, str]:
+        now_tz = ensure_campus_timezone(server_now)
+        end_tz = ensure_campus_timezone(booking.end_at)
+        start_tz = ensure_campus_timezone(booking.start_at)
+
         # Check if booking is already in the past
-        if server_now >= booking.end_at:
+        if now_tz >= end_tz:
             return False, "Cannot cancel a booking that has already concluded."
 
         # Check configured cancellation cutoff
         if cutoff_minutes > 0:
-            cutoff_threshold = booking.start_at - timedelta(minutes=cutoff_minutes)
-            if server_now > cutoff_threshold:
+            cutoff_threshold = start_tz - timedelta(minutes=cutoff_minutes)
+            if now_tz > cutoff_threshold:
                 return False, f"Cancellation cutoff window ({cutoff_minutes} minutes prior to start) has passed."
 
         return True, ""
@@ -64,12 +69,14 @@ class ConfirmedState(BookingState):
             raise InvalidStateTransitionException(f"Cancellation rejected: {reason}")
 
         booking.status = "CANCELLED"
-        booking.cancelled_at = server_now
+        booking.cancelled_at = ensure_campus_timezone(server_now)
         booking.cancelled_by = user.id
         return CancelledState()
 
     def can_complete(self, booking: 'Booking', server_now: datetime) -> Tuple[bool, str]:
-        if server_now < booking.end_at:
+        now_tz = ensure_campus_timezone(server_now)
+        end_tz = ensure_campus_timezone(booking.end_at)
+        if now_tz < end_tz:
             return False, "Cannot complete a booking before its scheduled end time."
         return True, ""
 

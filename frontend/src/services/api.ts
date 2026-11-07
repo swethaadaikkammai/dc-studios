@@ -8,7 +8,8 @@ import {
   AuditLog,
   BoardPermission,
   ReminderStatusResponse,
-  ReminderDispatchRecord
+  ReminderDispatchRecord,
+  BookingApproval
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -114,7 +115,7 @@ export const api = {
   // Administration
   getUsers: () => request<User[]>('/admin/users'),
 
-  createUser: (payload: { username: string; email: string; password: string; role: string; team_id?: number | null; whatsapp_number?: string; is_active?: boolean }) =>
+  createUser: (payload: { username: string; email: string; password: string; role: string; team_id?: number | null; whatsapp_number?: string; whatsapp_number_2?: string; is_active?: boolean }) =>
     request<User>('/admin/users', {
       method: 'POST',
       body: JSON.stringify(payload),
@@ -128,6 +129,7 @@ export const api = {
       role?: string;
       team_id?: number | null;
       whatsapp_number?: string;
+      whatsapp_number_2?: string;
       is_active?: boolean;
       password?: string;
     }
@@ -182,14 +184,37 @@ export const api = {
       { method: 'POST' }
     ),
 
-  updateAdminReminderPhone: (phoneNumber: string) =>
-    request<{ message: string; admin_id: number; username: string; whatsapp_number: string }>(
+  updateAdminReminderPhone: (phoneNumber: string, phoneNumber2?: string) =>
+    request<{ message: string; admin_id: number; username: string; whatsapp_number: string; whatsapp_number_2?: string }>(
       '/admin/reminders/phone',
       {
         method: 'PATCH',
-        body: JSON.stringify({ phone_number: phoneNumber }),
+        body: JSON.stringify({ phone_number: phoneNumber, phone_number_2: phoneNumber2 }),
       }
     ),
+
+  // ── Booking Approvals (Team Head ↔ Admin workflow) ──
+  submitBookingRequest: (payload: { team_id: number; room_id: number; start_at: string; end_at: string; purpose?: string; keys_secured?: boolean }) =>
+    request<BookingApproval>('/approvals/request', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getMyApprovalRequests: () => request<BookingApproval[]>('/approvals/my-requests'),
+
+  getAllApprovalRequests: (status?: string) => {
+    const qs = status ? `?approval_status=${status}` : '';
+    return request<BookingApproval[]>(`/approvals${qs}`);
+  },
+
+  approveRequest: (approvalId: number) =>
+    request<BookingApproval>(`/approvals/${approvalId}/approve`, { method: 'POST' }),
+
+  rejectRequest: (approvalId: number, reason?: string) =>
+    request<BookingApproval>(`/approvals/${approvalId}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ action: 'REJECT', rejection_reason: reason }),
+    }),
 };
 
 export { ApiError };

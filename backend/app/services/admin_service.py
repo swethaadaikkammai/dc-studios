@@ -30,6 +30,7 @@ class AdminService:
         role: str,
         team_id: Optional[int] = None,
         whatsapp_number: Optional[str] = None,
+        whatsapp_number_2: Optional[str] = None,
         is_active: bool = True
     ) -> User:
         existing = db.query(User).filter((User.username == username) | (User.email == email)).first()
@@ -43,6 +44,7 @@ class AdminService:
             role=role.upper(),
             team_id=team_id,
             whatsapp_number=whatsapp_number.strip() if whatsapp_number else None,
+            whatsapp_number_2=whatsapp_number_2.strip() if whatsapp_number_2 else None,
             is_active=is_active
         )
         db.add(user)
@@ -71,6 +73,7 @@ class AdminService:
         role: Optional[str] = None,
         team_id: Optional[int] = None,
         whatsapp_number: Optional[str] = None,
+        whatsapp_number_2: Optional[str] = None,
         is_active: Optional[bool] = None,
         password: Optional[str] = None
     ) -> User:
@@ -114,6 +117,12 @@ class AdminService:
             if user.whatsapp_number != wn:
                 changes.append(f"whatsapp: {user.whatsapp_number} -> {wn}")
                 user.whatsapp_number = wn
+
+        if whatsapp_number_2 is not None:
+            wn2 = whatsapp_number_2.strip() if whatsapp_number_2.strip() else None
+            if user.whatsapp_number_2 != wn2:
+                changes.append(f"whatsapp_2: {user.whatsapp_number_2} -> {wn2}")
+                user.whatsapp_number_2 = wn2
 
         if is_active is not None:
             if user.is_active != is_active:
@@ -219,7 +228,8 @@ class AdminService:
         maximum_duration_minutes: Optional[int] = None,
         advance_booking_hours: Optional[int] = None,
         cancellation_cutoff_minutes: Optional[int] = None,
-        daily_team_quota_minutes: Optional[int] = None
+        daily_team_quota_minutes: Optional[int] = None,
+        weekend_keys_secured: Optional[bool] = None
     ) -> ClubSettings:
         settings_record = db.query(ClubSettings).first()
         if not settings_record:
@@ -240,6 +250,8 @@ class AdminService:
             settings_record.cancellation_cutoff_minutes = cancellation_cutoff_minutes
         if daily_team_quota_minutes is not None:
             settings_record.daily_team_quota_minutes = daily_team_quota_minutes
+        if weekend_keys_secured is not None:
+            settings_record.weekend_keys_secured = weekend_keys_secured
 
         db.commit()
         db.refresh(settings_record)
@@ -248,12 +260,16 @@ class AdminService:
         ClubConfig.get_instance().reload(db)
 
         # Audit log
+        wks = "ON" if settings_record.weekend_keys_secured else "OFF"
         db.add(AuditLog(
             actor_id=actor.id,
             action="UPDATE_SETTINGS",
             entity_type="CLUB_SETTINGS",
             entity_id=settings_record.id,
-            details=f"Updated settings: hours={settings_record.opening_time}-{settings_record.closing_time}, advance={settings_record.advance_booking_hours}h"
+            details=(
+                f"Updated settings: hours={settings_record.opening_time}-{settings_record.closing_time}, "
+                f"advance={settings_record.advance_booking_hours}h, weekend_keys_secured={wks}"
+            )
         ))
         db.commit()
         return settings_record

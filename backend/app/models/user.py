@@ -13,6 +13,7 @@ class User(Base):
     role = Column(String(30), nullable=False)  # "ADMIN", "BOARD_MEMBER", "TEAM_HEAD"
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
     whatsapp_number = Column(String(30), nullable=True)
+    whatsapp_number_2 = Column(String(30), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
