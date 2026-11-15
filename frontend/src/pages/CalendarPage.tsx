@@ -648,7 +648,7 @@ export const CalendarPage: React.FC = () => {
                             {layout.height >= 90 && (
                               <div className="text-[10px] font-semibold text-slate-500 flex items-center justify-between pt-1 border-t border-slate-200/50 mt-1 pl-1">
                                 <span className="text-slate-500 truncate">Booked by {b.creator?.username || 'Club Board'}</span>
-                                <span className="text-[#356AE6] font-bold underline">View Pass →</span>
+                                <span className="text-[#356AE6] font-bold underline">View Pass</span>
                               </div>
                             )}
                           </div>

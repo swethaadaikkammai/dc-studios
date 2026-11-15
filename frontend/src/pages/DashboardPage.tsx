@@ -241,7 +241,7 @@ export const DashboardPage: React.FC = () => {
             onClick={() => setApprovalFeedbackMsg(null)}
             className="text-slate-400 hover:text-slate-600 font-bold self-end sm:self-center"
           >
-            ✕
+            ×
           </button>
         </div>
       )}

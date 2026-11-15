@@ -2485,8 +2485,8 @@ const EventsPlanningTab: React.FC = () => {
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColor[ev.status]}`}>{ev.status}</span>
                 </div>
                 <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
-                  {ev.date && <span>📅 {ev.date}</span>}
-                  {ev.venue && <span>📍 {ev.venue}</span>}
+                  {ev.date && <span>{ev.date}</span>}
+                  {ev.venue && <span>{ev.venue}</span>}
                 </div>
                 {ev.description && <p className="mt-1.5 text-xs text-slate-600">{ev.description}</p>}
               </div>
@@ -2563,9 +2563,9 @@ const EventRemindersTab: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-bold text-slate-900 text-sm">{r.eventName}</span>
-                  {r.sent && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Sent ✓</span>}
+                  {r.sent && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Sent</span>}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">🔔 {r.reminderDate}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{r.reminderDate}</p>
                 <p className="text-xs text-slate-700 mt-1">{r.message}</p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -2656,7 +2656,7 @@ const CustomRemindersTab: React.FC = () => {
                   <span className={`font-bold text-sm text-slate-900 ${r.done ? 'line-through' : ''}`}>{r.title}</span>
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${repeatColors[r.repeat]}`}>{r.repeat}</span>
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">🔔 {r.date}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{r.date}</p>
                 {r.note && <p className="text-xs text-slate-600 mt-1">{r.note}</p>}
               </div>
               <button onClick={() => del(r.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
@@ -2702,7 +2702,7 @@ const ClubTodoTab: React.FC = () => {
   };
 
   const categoryEmoji: Record<Category, string> = {
-    finance: '💰', outreach: '📢', pr: '📣', editorial: '✏️', design: '🎨'
+    finance: '', outreach: '', pr: '', editorial: '', design: ''
   };
 
   const filtered = items.filter(i => {
@@ -2745,16 +2745,16 @@ const ClubTodoTab: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input required placeholder="Task description..." value={form.text} onChange={e => setForm(f => ({...f, text: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2" />
             <select value={form.priority} onChange={e => setForm(f => ({...f, priority: e.target.value as Priority}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
-              <option value="low">🟢 Low Priority</option>
-              <option value="medium">🟡 Medium Priority</option>
-              <option value="high">🔴 High Priority</option>
+              <option value="low">Low Priority</option>
+              <option value="medium">Medium Priority</option>
+              <option value="high">High Priority</option>
             </select>
             <select value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value as Category}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
-              <option value="finance">💰 Finance</option>
-              <option value="outreach">📢 Outreach</option>
-              <option value="pr">📣 PR</option>
-              <option value="editorial">✏️ Editorial</option>
-              <option value="design">🎨 Design</option>
+              <option value="finance">Finance</option>
+              <option value="outreach">Outreach</option>
+              <option value="pr">PR</option>
+              <option value="editorial">Editorial</option>
+              <option value="design">Design</option>
             </select>
             <textarea placeholder="Notes (optional)" value={form.note} onChange={e => setForm(f => ({...f, note: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
           </div>
@@ -2769,11 +2769,11 @@ const ClubTodoTab: React.FC = () => {
       <div className="flex flex-wrap gap-2 text-xs">
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
           <option value="all">All Categories</option>
-          <option value="finance">💰 Finance</option>
-          <option value="outreach">📢 Outreach</option>
-          <option value="pr">📣 PR</option>
-          <option value="editorial">✏️ Editorial</option>
-          <option value="design">🎨 Design</option>
+          <option value="finance">Finance</option>
+          <option value="outreach">Outreach</option>
+          <option value="pr">PR</option>
+          <option value="editorial">Editorial</option>
+          <option value="design">Design</option>
         </select>
         <select value={filterDone} onChange={e => setFilterDone(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
           <option value="all">All Status</option>
