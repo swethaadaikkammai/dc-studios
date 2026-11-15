@@ -2672,13 +2672,13 @@ const CustomRemindersTab: React.FC = () => {
 
 const ClubTodoTab: React.FC = () => {
   type Priority = 'low' | 'medium' | 'high';
-  type Category = 'general' | 'practice' | 'admin' | 'performance' | 'finance';
+  type Category = 'finance' | 'outreach' | 'pr' | 'editorial' | 'design';
   type TodoItem = { id: number; text: string; priority: Priority; category: Category; done: boolean; note: string; createdAt: string };
 
   const [items, setItems] = React.useState<TodoItem[]>(() => {
     try { return JSON.parse(localStorage.getItem('dc_todos') || '[]'); } catch { return []; }
   });
-  const [form, setForm] = React.useState({ text: '', priority: 'medium' as Priority, category: 'general' as Category, note: '' });
+  const [form, setForm] = React.useState({ text: '', priority: 'medium' as Priority, category: 'finance' as Category, note: '' });
   const [showForm, setShowForm] = React.useState(false);
   const [filterCat, setFilterCat] = React.useState<string>('all');
   const [filterDone, setFilterDone] = React.useState<string>('all');
@@ -2688,7 +2688,7 @@ const ClubTodoTab: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     save([{ id: Date.now(), ...form, done: false, createdAt: new Date().toISOString() }, ...items]);
-    setForm({ text: '', priority: 'medium', category: 'general', note: '' });
+    setForm({ text: '', priority: 'medium', category: 'finance', note: '' });
     setShowForm(false);
   };
 
@@ -2702,7 +2702,7 @@ const ClubTodoTab: React.FC = () => {
   };
 
   const categoryEmoji: Record<Category, string> = {
-    general: '📋', practice: '💃', admin: '⚙️', performance: '🎭', finance: '💰'
+    finance: '💰', outreach: '📢', pr: '📣', editorial: '✏️', design: '🎨'
   };
 
   const filtered = items.filter(i => {
@@ -2750,11 +2750,11 @@ const ClubTodoTab: React.FC = () => {
               <option value="high">🔴 High Priority</option>
             </select>
             <select value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value as Category}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
-              <option value="general">📋 General</option>
-              <option value="practice">💃 Practice</option>
-              <option value="admin">⚙️ Admin</option>
-              <option value="performance">🎭 Performance</option>
               <option value="finance">💰 Finance</option>
+              <option value="outreach">📢 Outreach</option>
+              <option value="pr">📣 PR</option>
+              <option value="editorial">✏️ Editorial</option>
+              <option value="design">🎨 Design</option>
             </select>
             <textarea placeholder="Notes (optional)" value={form.note} onChange={e => setForm(f => ({...f, note: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
           </div>
@@ -2769,11 +2769,11 @@ const ClubTodoTab: React.FC = () => {
       <div className="flex flex-wrap gap-2 text-xs">
         <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
           <option value="all">All Categories</option>
-          <option value="general">📋 General</option>
-          <option value="practice">💃 Practice</option>
-          <option value="admin">⚙️ Admin</option>
-          <option value="performance">🎭 Performance</option>
           <option value="finance">💰 Finance</option>
+          <option value="outreach">📢 Outreach</option>
+          <option value="pr">📣 PR</option>
+          <option value="editorial">✏️ Editorial</option>
+          <option value="design">🎨 Design</option>
         </select>
         <select value={filterDone} onChange={e => setFilterDone(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
           <option value="all">All Status</option>
