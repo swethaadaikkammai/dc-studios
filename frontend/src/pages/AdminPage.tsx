@@ -10,7 +10,9 @@ import {
   AuditLog,
   BoardPermission,
   ReminderStatusResponse,
-  BookingApproval
+  BookingApproval,
+  Booking,
+  PasswordResetRequest
 } from '../types';
 import {
   ShieldAlert,
@@ -55,7 +57,7 @@ const formatDetailedMs = (isoStr: string, epochMs?: number | null) => {
 
 export const AdminPage: React.FC = () => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'reminders' | 'audit' | 'approvals'>('approvals');
+  const [activeTab, setActiveTab] = useState<'users' | 'permissions' | 'settings' | 'rooms' | 'reminders' | 'audit' | 'approvals' | 'bookings' | 'events' | 'todo' | 'custom-reminders' | 'event-reminders'>('approvals');
 
   const [users, setUsers] = useState<User[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -63,6 +65,20 @@ export const AdminPage: React.FC = () => {
   const [settings, setSettings] = useState<ClubSettings | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [permissions, setPermissions] = useState<BoardPermission[]>([]);
+
+  // Studio Bookings Management State
+  const [bookingsList, setBookingsList] = useState<Booking[]>([]);
+  const [bookingFilterStatus, setBookingFilterStatus] = useState<string>('ALL');
+  const [deletingBooking, setDeletingBooking] = useState<Booking | null>(null);
+  const [cancellingBooking, setCancellingBooking] = useState<Booking | null>(null);
+  const [adminCancelReason, setAdminCancelReason] = useState<string>('');
+  const [cancellationResult, setCancellationResult] = useState<{ message: string; whatsappUrl?: string } | null>(null);
+
+  // Password Reset Requests State
+  const [passwordResetRequests, setPasswordResetRequests] = useState<PasswordResetRequest[]>([]);
+  const [resolvingReset, setResolvingReset] = useState<PasswordResetRequest | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState<string>('');
+  const [isResolvingReset, setIsResolvingReset] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -113,10 +129,11 @@ export const AdminPage: React.FC = () => {
     testNotification,
   } = useDeviceNotifications();
 
-  // Approval Requests State
+  // Approval Requests State - DEFAULT TO 'PENDING' ONLY
   const [approvals, setApprovals] = useState<BookingApproval[]>([]);
-  const [approvalStatusFilter, setApprovalStatusFilter] = useState<string>('ALL');
+  const [approvalStatusFilter, setApprovalStatusFilter] = useState<string>('PENDING');
   const [actioningApprovalId, setActioningApprovalId] = useState<number | null>(null);
+  const [rejectingApprovalId, setRejectingApprovalId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState<{ [id: number]: string }>({});
   const [isRefreshingApprovals, setIsRefreshingApprovals] = useState(false);
   const [approvalFeedback, setApprovalFeedback] = useState<{ id: number; message: string; whatsappUrl?: string } | null>(null);
@@ -166,9 +183,10 @@ export const AdminPage: React.FC = () => {
     setMessage(null);
     setErrorMessage(null);
     try {
-      const reason = rejectReason[id] || 'Slot rejected by Administrator';
+      const reason = rejectReason[id]?.trim() || 'Slot rejected by Administrator';
       await api.rejectRequest(id, reason);
       setMessage(`Booking request #${id} has been rejected.`);
+      setRejectingApprovalId(null);
       await loadApprovals();
     } catch (e: any) {
       setErrorMessage(e?.message || 'Failed to reject booking request.');
@@ -227,7 +245,7 @@ export const AdminPage: React.FC = () => {
   const loadAdminData = async () => {
     setIsLoading(true);
     try {
-      const [u, t, r, s, a, p, apprv] = await Promise.all([
+      const [u, t, r, s, a, p, apprv, bList, pResets] = await Promise.all([
         api.getUsers(),
         api.getTeams(),
         api.getRooms(),
@@ -235,6 +253,8 @@ export const AdminPage: React.FC = () => {
         api.getAuditLogs(100),
         api.getBoardPermissions(),
         api.getAllApprovalRequests(),
+        api.getBookings().catch(() => []),
+        api.getPasswordResetRequests('PENDING').catch(() => []),
       ]);
       setUsers(u);
       setTeams(t);
@@ -244,10 +264,66 @@ export const AdminPage: React.FC = () => {
       setAuditLogs(a);
       setPermissions(p);
       setApprovals(apprv);
+      setBookingsList(bList);
+      setPasswordResetRequests(pResets);
     } catch (e: any) {
       setErrorMessage(e?.message || 'Failed to load administrator data.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleDeleteBooking = async (bookingId: number) => {
+    setMessage(null);
+    setErrorMessage(null);
+    try {
+      await api.deleteBookingAdmin(bookingId);
+      setMessage(`Booking #${bookingId} was permanently deleted and the studio slot has been released.`);
+      setDeletingBooking(null);
+      await loadAdminData();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to delete booking.');
+    }
+  };
+
+  const handleAdminCancelBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cancellingBooking) return;
+    setMessage(null);
+    setErrorMessage(null);
+    try {
+      const res = await api.cancelBooking(cancellingBooking.id, adminCancelReason.trim() || undefined);
+      setMessage(`Booking #${cancellingBooking.id} has been cancelled.`);
+      setCancellationResult({
+        message: `Booking #${cancellingBooking.id} cancelled successfully.`,
+        whatsappUrl: res.cancellation_whatsapp_url,
+      });
+      setCancellingBooking(null);
+      setAdminCancelReason('');
+      await loadAdminData();
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to cancel booking.');
+    }
+  };
+
+  const handleResolveReset = async (requestId: number) => {
+    setIsResolvingReset(true);
+    setMessage(null);
+    setErrorMessage(null);
+    try {
+      const res = await api.resolvePasswordResetRequest(requestId, {
+        new_password: newPasswordInput.trim() || undefined,
+        notes: 'Resolved by Administrator in Admin Console',
+      });
+      setMessage(res.message);
+      setResolvingReset(null);
+      setNewPasswordInput('');
+      const updated = await api.getPasswordResetRequests('PENDING');
+      setPasswordResetRequests(updated);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to resolve password reset request.');
+    } finally {
+      setIsResolvingReset(false);
     }
   };
 
@@ -283,7 +359,7 @@ export const AdminPage: React.FC = () => {
     try {
       await api.createUser({
         username: newUsername.trim(),
-        email: newEmail.trim(),
+        email: newEmail.trim() || undefined,
         password: newPassword,
         role: newRole,
         team_id: newTeamId ? Number(newTeamId) : null,
@@ -315,7 +391,7 @@ export const AdminPage: React.FC = () => {
   const startEditUser = (u: User) => {
     setEditingUser(u);
     setEditUsername(u.username);
-    setEditEmail(u.email);
+    setEditEmail(u.email || '');
     setEditPassword('');
     setEditRole(u.role);
     setEditTeamId(u.team_id ? String(u.team_id) : '');
@@ -332,7 +408,7 @@ export const AdminPage: React.FC = () => {
     try {
       const payload: any = {
         username: editUsername.trim(),
-        email: editEmail.trim(),
+        email: editEmail.trim() || undefined,
         role: editRole,
         team_id: editTeamId ? Number(editTeamId) : null,
         whatsapp_number: editWhatsApp.trim() || undefined,
@@ -459,6 +535,69 @@ export const AdminPage: React.FC = () => {
         </div>
       )}
 
+      {/* Active Password Reset Requests Banner */}
+      {passwordResetRequests.length > 0 && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 text-xs text-amber-950 space-y-3 shadow-sm">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0">
+                <Key className="w-4 h-4" />
+              </div>
+              <div>
+                <h4 className="font-extrabold text-slate-900 text-sm">
+                  Password Reset Requests ({passwordResetRequests.length} Pending)
+                </h4>
+                <p className="text-[11px] text-amber-800">
+                  Team Heads/Members requested password updates via the login screen.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {passwordResetRequests.map((req) => (
+              <div
+                key={req.id}
+                className="bg-white/95 p-3 rounded-xl border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+              >
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-extrabold text-slate-900 text-xs">@{req.username}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">
+                      {req.team_name || 'Member'}
+                    </span>
+                    {req.whatsapp_number && (
+                      <span className="text-[11px] text-slate-600 font-medium">· Phone: {req.whatsapp_number}</span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Requested on {format(parseISO(req.created_at), 'dd MMM yyyy, hh:mm a')}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      setResolvingReset(req);
+                      setNewPasswordInput('');
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#356AE6] hover:bg-blue-600 text-white font-bold text-xs transition-colors shadow-sm cursor-pointer"
+                  >
+                    Reset Password
+                  </button>
+                  <button
+                    onClick={() => handleResolveReset(req.id)}
+                    disabled={isResolvingReset}
+                    className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 bg-slate-100 rounded-2xl w-fit text-xs font-bold">
         <button
@@ -474,6 +613,15 @@ export const AdminPage: React.FC = () => {
               {approvals.filter(a => a.approval_status === 'PENDING').length}
             </span>
           )}
+        </button>
+        <button
+          onClick={() => setActiveTab('bookings')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'bookings' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <Clock className="w-3.5 h-3.5 text-blue-600" />
+          <span>Studio Bookings ({bookingsList.length})</span>
         </button>
         <button
           onClick={() => setActiveTab('users')}
@@ -523,6 +671,42 @@ export const AdminPage: React.FC = () => {
         >
           <History className="w-3.5 h-3.5" /> Audit Trail ({auditLogs.length})
         </button>
+        <button
+          onClick={() => setActiveTab('events')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'events' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+          Event Planning
+        </button>
+        <button
+          onClick={() => setActiveTab('event-reminders')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'event-reminders' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+          Event Reminders
+        </button>
+        <button
+          onClick={() => setActiveTab('custom-reminders')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'custom-reminders' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          Custom Reminders
+        </button>
+        <button
+          onClick={() => setActiveTab('todo')}
+          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl transition-all ${
+            activeTab === 'todo' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <svg className="w-3.5 h-3.5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+          Club Activities
+        </button>
       </div>
 
       {/* Tab 0: Booking Approvals (Team Head Requests) */}
@@ -552,7 +736,7 @@ export const AdminPage: React.FC = () => {
 
           {/* Status Filters */}
           <div className="flex flex-wrap items-center gap-2">
-            {(['ALL', 'PENDING', 'APPROVED', 'REJECTED'] as const).map((filter) => {
+            {(['PENDING', 'APPROVED', 'REJECTED', 'ALL'] as const).map((filter) => {
               const count =
                 filter === 'ALL'
                   ? approvals.length
@@ -795,39 +979,216 @@ export const AdminPage: React.FC = () => {
 
                     {/* Admin Actions if PENDING */}
                     {req.approval_status === 'PENDING' && (
-                      <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-200">
-                        <div className="flex-1">
-                          <input
-                            type="text"
-                            placeholder="Optional rejection reason (if rejecting)..."
-                            value={rejectReason[req.id] || ''}
-                            onChange={(e) =>
-                              setRejectReason({ ...rejectReason, [req.id]: e.target.value })
-                            }
-                            className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 bg-white"
-                          />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => handleReject(req.id)}
-                            disabled={actioningApprovalId === req.id}
-                            className="px-3.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 font-bold text-xs transition-colors"
-                          >
-                            Reject Request
-                          </button>
-                          <button
-                            onClick={() => handleApprove(req.id)}
-                            disabled={actioningApprovalId === req.id}
-                            className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                            Approve & Reserve Slot
-                          </button>
-                        </div>
+                      <div className="pt-3 border-t border-slate-200">
+                        {rejectingApprovalId === req.id ? (
+                          <div className="p-3.5 bg-rose-50/90 border border-rose-200 rounded-xl space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-rose-900 flex items-center gap-1.5">
+                                <XCircle className="w-4 h-4 text-rose-600" />
+                                Rejection Reason:
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setRejectingApprovalId(null)}
+                                className="text-xs text-slate-500 hover:text-slate-700 font-semibold"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                            <input
+                              type="text"
+                              autoFocus
+                              placeholder="Enter reason for rejection (e.g., Slot already reserved, maintenance, etc.)..."
+                              value={rejectReason[req.id] || ''}
+                              onChange={(e) =>
+                                setRejectReason({ ...rejectReason, [req.id]: e.target.value })
+                              }
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  handleReject(req.id);
+                                }
+                              }}
+                              className="w-full px-3 py-2 text-xs rounded-lg border border-rose-300 bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 text-slate-800"
+                            />
+                            <div className="flex items-center justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setRejectingApprovalId(null)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-white border border-slate-200 hover:bg-slate-100 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleReject(req.id)}
+                                disabled={actioningApprovalId === req.id}
+                                className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs transition-colors flex items-center gap-1 shadow-sm"
+                              >
+                                {actioningApprovalId === req.id ? 'Rejecting...' : 'Confirm Rejection'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={() => setRejectingApprovalId(req.id)}
+                              disabled={actioningApprovalId === req.id}
+                              className="px-3.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100 font-bold text-xs transition-colors"
+                            >
+                              Reject Request
+                            </button>
+                            <button
+                              onClick={() => handleApprove(req.id)}
+                              disabled={actioningApprovalId === req.id}
+                              className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              Approve & Reserve Slot
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab: Studio Bookings Management */}
+      {activeTab === 'bookings' && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-600" />
+                All Studio Bookings & Reservations
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                View, cancel, or permanently delete studio bookings. Cancelling notifies the Team Head via in-app alert & WhatsApp with your cancellation reason.
+              </p>
+            </div>
+            <button
+              onClick={loadAdminData}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors w-fit"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </button>
+          </div>
+
+          {/* Status Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            {(['ALL', 'CONFIRMED', 'CANCELLED', 'COMPLETED'] as const).map((filter) => {
+              const count =
+                filter === 'ALL'
+                  ? bookingsList.length
+                  : bookingsList.filter((b) => b.status === filter).length;
+              return (
+                <button
+                  key={filter}
+                  onClick={() => setBookingFilterStatus(filter)}
+                  className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    bookingFilterStatus === filter
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {filter} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bookings Table */}
+          {bookingsList.filter((b) => bookingFilterStatus === 'ALL' || b.status === bookingFilterStatus).length === 0 ? (
+            <div className="text-center py-12 text-slate-400 text-xs">
+              No studio bookings found under status "{bookingFilterStatus}".
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-700">
+                <thead className="bg-slate-50 text-slate-400 font-bold uppercase tracking-wider border-y border-slate-100">
+                  <tr>
+                    <th className="py-3 px-4">Booking</th>
+                    <th className="py-3 px-4">Studio</th>
+                    <th className="py-3 px-4">Team</th>
+                    <th className="py-3 px-4">Slot Timing</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Notes / Reason</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {bookingsList
+                    .filter((b) => bookingFilterStatus === 'ALL' || b.status === bookingFilterStatus)
+                    .map((b) => (
+                      <tr key={b.id} className="hover:bg-slate-50/50">
+                        <td className="py-3 px-4 font-bold text-slate-900">#{b.id}</td>
+                        <td className="py-3 px-4 font-semibold text-slate-800">{b.room?.name || `Room #${b.room_id}`}</td>
+                        <td className="py-3 px-4 font-bold text-blue-700">{b.team?.name || `Team #${b.team_id}`}</td>
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-slate-900">
+                            {format(parseISO(b.start_at), 'dd MMM yyyy')}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            {format(parseISO(b.start_at), 'hh:mm a')} – {format(parseISO(b.end_at), 'hh:mm a')} IST
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              b.status === 'CONFIRMED'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : b.status === 'CANCELLED'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {b.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 max-w-xs">
+                          {b.cancellation_reason ? (
+                            <div className="text-rose-700 font-medium text-[11px]">
+                              Cancellation: {b.cancellation_reason}
+                            </div>
+                          ) : b.purpose ? (
+                            <div className="text-slate-600 text-[11px] truncate">
+                              {b.purpose}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {b.status === 'CONFIRMED' && (
+                              <button
+                                onClick={() => {
+                                  setCancellingBooking(b);
+                                  setAdminCancelReason('');
+                                }}
+                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors cursor-pointer"
+                                title="Cancel booking and enter reason for Team Head"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                            <button
+                              onClick={() => setDeletingBooking(b)}
+                              className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                              title="Permanently delete booking from database"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -859,14 +1220,7 @@ export const AdminPage: React.FC = () => {
                   onChange={(e) => setNewUsername(e.target.value)}
                   className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium"
                 />
-                <input
-                  type="email"
-                  required
-                  placeholder="Official Email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium"
-                />
+
                 <input
                   type="password"
                   required
@@ -939,7 +1293,6 @@ export const AdminPage: React.FC = () => {
               <thead className="bg-slate-50 text-slate-400 font-bold uppercase tracking-wider border-y border-slate-100">
                 <tr>
                   <th className="py-3 px-4">User</th>
-                  <th className="py-3 px-4">Email</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Team</th>
                   <th className="py-3 px-4">WhatsApp</th>
@@ -951,7 +1304,6 @@ export const AdminPage: React.FC = () => {
                 {users.map((u) => (
                   <tr key={u.id} className="hover:bg-slate-50/50">
                     <td className="py-3 px-4 font-bold text-slate-900">{u.username}</td>
-                    <td className="py-3 px-4">{u.email}</td>
                     <td className="py-3 px-4 font-semibold">
                       <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-800 text-[11px]">
                         {u.role}
@@ -1059,18 +1411,7 @@ export const AdminPage: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                  Email Address
-                </label>
-                <input
-                  type="email"
-                  required
-                  value={editEmail}
-                  onChange={(e) => setEditEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
-                />
-              </div>
+
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1221,6 +1562,195 @@ export const AdminPage: React.FC = () => {
               >
                 Delete Account
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Booking Confirmation Modal */}
+      {deletingBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 p-6 space-y-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 flex items-center justify-center text-rose-600 mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900">Permanently Delete Booking #{deletingBooking.id}</h3>
+              <p className="text-xs text-slate-500">
+                Are you sure you want to permanently delete this booking for{' '}
+                <span className="font-bold text-slate-800">{deletingBooking.team?.name || `Team #${deletingBooking.team_id}`}</span>?
+              </p>
+              <p className="text-[11px] text-rose-700 bg-rose-50 p-2.5 rounded-xl mt-2 border border-rose-200">
+                This will delete the booking row from the database and immediately free up the studio slot.
+              </p>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingBooking(null)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteBooking(deletingBooking.id)}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm"
+              >
+                Delete Booking
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Cancel Booking Modal with Mandatory Reason */}
+      {cancellingBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-base font-bold text-slate-900">
+                Cancel Booking #{cancellingBooking.id}
+              </h3>
+              <button
+                onClick={() => setCancellingBooking(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div><strong>Team:</strong> {cancellingBooking.team?.name || `Team #${cancellingBooking.team_id}`}</div>
+              <div><strong>Studio:</strong> {cancellingBooking.room?.name || `Room #${cancellingBooking.room_id}`}</div>
+              <div><strong>Slot:</strong> {format(parseISO(cancellingBooking.start_at), 'dd MMM yyyy, hh:mm a')} – {format(parseISO(cancellingBooking.end_at), 'hh:mm a')}</div>
+            </div>
+
+            <form onSubmit={handleAdminCancelBooking} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  Cancellation Reason (Sent in-app & WhatsApp)
+                </label>
+                <textarea
+                  required
+                  rows={3}
+                  value={adminCancelReason}
+                  onChange={(e) => setAdminCancelReason(e.target.value)}
+                  placeholder="e.g., Studio maintenance scheduled, urgent club event conflict, emergency keys unavailability..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setCancellingBooking(null)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
+                >
+                  Close
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 transition-colors shadow-sm"
+                >
+                  Confirm Cancellation
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Cancellation Result & WhatsApp Dispatch Dialog */}
+      {cancellationResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 p-6 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-6 h-6" />
+            </div>
+
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Booking Cancelled Successfully</h3>
+              <p className="text-xs text-slate-500 mt-1">{cancellationResult.message}</p>
+            </div>
+
+            {cancellationResult.whatsappUrl && (
+              <a
+                href={cancellationResult.whatsappUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
+              >
+                <ExternalLink className="w-4 h-4" />
+                Send Cancellation on WhatsApp to Team Head
+              </a>
+            )}
+
+            <button
+              onClick={() => setCancellationResult(null)}
+              className="w-full py-2.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Password Reset Modal */}
+      {resolvingReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100 p-6 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                <Key className="w-4 h-4 text-amber-500" />
+                Reset Password for @{resolvingReset.username}
+              </div>
+              <button
+                onClick={() => setResolvingReset(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Set a new temporary password for <strong>@{resolvingReset.username}</strong> ({resolvingReset.team_name || 'Member'}).
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                  New Password
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newPasswordInput}
+                  onChange={(e) => setNewPasswordInput(e.target.value)}
+                  placeholder="e.g., DanceClub@2026"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#356AE6]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResolvingReset(null)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isResolvingReset || !newPasswordInput.trim()}
+                  onClick={() => handleResolveReset(resolvingReset.id)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#356AE6] hover:bg-blue-600 transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {isResolvingReset ? 'Updating...' : 'Save Password'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1827,6 +2357,453 @@ export const AdminPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* ===================== NEW ADMIN TABS ===================== */}
+
+      {/* Events Planning Tab */}
+      {activeTab === 'events' && (
+        <EventsPlanningTab />
+      )}
+
+      {/* Event Reminders Tab */}
+      {activeTab === 'event-reminders' && (
+        <EventRemindersTab />
+      )}
+
+      {/* Custom Reminders Tab */}
+      {activeTab === 'custom-reminders' && (
+        <CustomRemindersTab />
+      )}
+
+      {/* Club Activities / Todo Tab */}
+      {activeTab === 'todo' && (
+        <ClubTodoTab />
+      )}
+
+      {/* Developer Credit */}
+      <div className="mt-6 py-4 border-t border-slate-100 flex items-center justify-center">
+        <p className="text-[11px] text-slate-400 font-medium tracking-wide">
+          Designed &amp; Developed by{' '}
+          <span className="font-bold text-slate-600">Swetha Adaikkammai</span>
+        </p>
+      </div>
+    </div>
+  );
+};
+
+/* =========================================================
+   INLINE SUB-COMPONENTS FOR NEW ADMIN TABS
+   ========================================================= */
+
+const EventsPlanningTab: React.FC = () => {
+  const [events, setEvents] = React.useState<{ id: number; title: string; date: string; venue: string; description: string; status: 'upcoming' | 'completed' | 'cancelled' }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dc_events') || '[]'); } catch { return []; }
+  });
+  const [form, setForm] = React.useState({ title: '', date: '', venue: '', description: '' });
+  const [editing, setEditing] = React.useState<number | null>(null);
+  const [showForm, setShowForm] = React.useState(false);
+
+  const save = (list: typeof events) => { localStorage.setItem('dc_events', JSON.stringify(list)); setEvents(list); };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editing !== null) {
+      save(events.map(ev => ev.id === editing ? { ...ev, ...form } : ev));
+      setEditing(null);
+    } else {
+      save([...events, { id: Date.now(), ...form, status: 'upcoming' as const }]);
+    }
+    setForm({ title: '', date: '', venue: '', description: '' });
+    setShowForm(false);
+  };
+
+  const cycleStatus = (id: number) => {
+    save(events.map(ev => {
+      if (ev.id !== id) return ev;
+      const next: Record<string, 'upcoming' | 'completed' | 'cancelled'> = { upcoming: 'completed', completed: 'cancelled', cancelled: 'upcoming' };
+      return { ...ev, status: next[ev.status] };
+    }));
+  };
+
+  const deleteEvent = (id: number) => save(events.filter(ev => ev.id !== id));
+
+  const startEdit = (ev: typeof events[0]) => {
+    setForm({ title: ev.title, date: ev.date, venue: ev.venue, description: ev.description });
+    setEditing(ev.id);
+    setShowForm(true);
+  };
+
+  const statusColor: Record<string, string> = {
+    upcoming: 'bg-blue-100 text-blue-800 border-blue-200',
+    completed: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    cancelled: 'bg-rose-100 text-rose-800 border-rose-200',
+  };
+
+  return (
+    <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Event Planning</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Manage DC Studios club events, performances, and activities.</p>
+        </div>
+        <button
+          onClick={() => { setForm({ title: '', date: '', venue: '', description: '' }); setEditing(null); setShowForm(s => !s); }}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#356AE6] text-white text-xs font-bold shadow-sm"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+          Add Event
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">{editing !== null ? 'Edit Event' : 'New Event'}</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input required placeholder="Event Title" value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2" />
+            <input required type="date" placeholder="Date" value={form.date} onChange={e => setForm(f => ({...f, date: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium" />
+            <input placeholder="Venue / Location" value={form.venue} onChange={e => setForm(f => ({...f, venue: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium" />
+            <textarea placeholder="Description / Notes" value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => { setShowForm(false); setEditing(null); }} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-200">Cancel</button>
+            <button type="submit" className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-[#356AE6]">{editing !== null ? 'Save Changes' : 'Create Event'}</button>
+          </div>
+        </form>
+      )}
+
+      {events.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 text-xs">No events planned yet. Click "Add Event" to get started.</div>
+      ) : (
+        <div className="space-y-3">
+          {events.sort((a, b) => a.date.localeCompare(b.date)).map(ev => (
+            <div key={ev.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-slate-900 text-sm">{ev.title}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${statusColor[ev.status]}`}>{ev.status}</span>
+                </div>
+                <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+                  {ev.date && <span>📅 {ev.date}</span>}
+                  {ev.venue && <span>📍 {ev.venue}</span>}
+                </div>
+                {ev.description && <p className="mt-1.5 text-xs text-slate-600">{ev.description}</p>}
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => cycleStatus(ev.id)} title="Cycle Status" className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100">Status ↻</button>
+                <button onClick={() => startEdit(ev)} className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </button>
+                <button onClick={() => deleteEvent(ev.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const EventRemindersTab: React.FC = () => {
+  const [reminders, setReminders] = React.useState<{ id: number; eventName: string; reminderDate: string; message: string; sent: boolean }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dc_event_reminders') || '[]'); } catch { return []; }
+  });
+  const [form, setForm] = React.useState({ eventName: '', reminderDate: '', message: '' });
+  const [showForm, setShowForm] = React.useState(false);
+
+  const save = (list: typeof reminders) => { localStorage.setItem('dc_event_reminders', JSON.stringify(list)); setReminders(list); };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    save([...reminders, { id: Date.now(), ...form, sent: false }]);
+    setForm({ eventName: '', reminderDate: '', message: '' });
+    setShowForm(false);
+  };
+
+  const markSent = (id: number) => save(reminders.map(r => r.id === id ? { ...r, sent: !r.sent } : r));
+  const deleteReminder = (id: number) => save(reminders.filter(r => r.id !== id));
+
+  return (
+    <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Event Reminders</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Set reminders for upcoming DC Studios events and performances.</p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#356AE6] text-white text-xs font-bold shadow-sm">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+          Add Reminder
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">New Event Reminder</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input required placeholder="Event Name" value={form.eventName} onChange={e => setForm(f => ({...f, eventName: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium" />
+            <input required type="datetime-local" value={form.reminderDate} onChange={e => setForm(f => ({...f, reminderDate: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium" />
+            <textarea required placeholder="Reminder message to send..." value={form.message} onChange={e => setForm(f => ({...f, message: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-200">Cancel</button>
+            <button type="submit" className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-[#356AE6]">Save Reminder</button>
+          </div>
+        </form>
+      )}
+
+      {reminders.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 text-xs">No event reminders set.</div>
+      ) : (
+        <div className="space-y-3">
+          {reminders.sort((a, b) => a.reminderDate.localeCompare(b.reminderDate)).map(r => (
+            <div key={r.id} className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-start gap-3 ${r.sent ? 'bg-emerald-50 border-emerald-200' : 'bg-slate-50 border-slate-200'}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-slate-900 text-sm">{r.eventName}</span>
+                  {r.sent && <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">Sent ✓</span>}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">🔔 {r.reminderDate}</p>
+                <p className="text-xs text-slate-700 mt-1">{r.message}</p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button onClick={() => markSent(r.id)} className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${r.sent ? 'bg-white border-slate-200 text-slate-700' : 'bg-emerald-100 border-emerald-200 text-emerald-800'}`}>{r.sent ? 'Mark Unsent' : 'Mark Sent'}</button>
+                <button onClick={() => deleteReminder(r.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const CustomRemindersTab: React.FC = () => {
+  const [reminders, setReminders] = React.useState<{ id: number; title: string; date: string; repeat: 'none' | 'daily' | 'weekly' | 'monthly'; note: string; done: boolean }[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dc_custom_reminders') || '[]'); } catch { return []; }
+  });
+  const [form, setForm] = React.useState({ title: '', date: '', repeat: 'none' as 'none' | 'daily' | 'weekly' | 'monthly', note: '' });
+  const [showForm, setShowForm] = React.useState(false);
+
+  const save = (list: typeof reminders) => { localStorage.setItem('dc_custom_reminders', JSON.stringify(list)); setReminders(list); };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    save([...reminders, { id: Date.now(), ...form, done: false }]);
+    setForm({ title: '', date: '', repeat: 'none', note: '' });
+    setShowForm(false);
+  };
+
+  const toggle = (id: number) => save(reminders.map(r => r.id === id ? { ...r, done: !r.done } : r));
+  const del = (id: number) => save(reminders.filter(r => r.id !== id));
+
+  const repeatColors: Record<string, string> = {
+    none: 'bg-slate-100 text-slate-700',
+    daily: 'bg-yellow-100 text-yellow-800',
+    weekly: 'bg-blue-100 text-blue-800',
+    monthly: 'bg-purple-100 text-purple-800',
+  };
+
+  return (
+    <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Custom Reminders</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Set recurring or one-time custom reminders for club admin tasks.</p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#356AE6] text-white text-xs font-bold shadow-sm">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+          New Reminder
+        </button>
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">New Custom Reminder</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input required placeholder="Reminder Title" value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2" />
+            <input required type="datetime-local" value={form.date} onChange={e => setForm(f => ({...f, date: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium" />
+            <select value={form.repeat} onChange={e => setForm(f => ({...f, repeat: e.target.value as typeof form.repeat}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
+              <option value="none">No Repeat</option>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+            </select>
+            <textarea placeholder="Notes (optional)" value={form.note} onChange={e => setForm(f => ({...f, note: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-200">Cancel</button>
+            <button type="submit" className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-[#356AE6]">Create</button>
+          </div>
+        </form>
+      )}
+
+      {reminders.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 text-xs">No custom reminders. Add one above.</div>
+      ) : (
+        <div className="space-y-3">
+          {reminders.sort((a, b) => a.date.localeCompare(b.date)).map(r => (
+            <div key={r.id} className={`p-4 rounded-2xl border flex items-start gap-3 ${r.done ? 'opacity-60 bg-slate-50 border-slate-100' : 'bg-white border-slate-200'}`}>
+              <button onClick={() => toggle(r.id)} className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${r.done ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                {r.done && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={`font-bold text-sm text-slate-900 ${r.done ? 'line-through' : ''}`}>{r.title}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${repeatColors[r.repeat]}`}>{r.repeat}</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">🔔 {r.date}</p>
+                {r.note && <p className="text-xs text-slate-600 mt-1">{r.note}</p>}
+              </div>
+              <button onClick={() => del(r.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ClubTodoTab: React.FC = () => {
+  type Priority = 'low' | 'medium' | 'high';
+  type Category = 'general' | 'practice' | 'admin' | 'performance' | 'finance';
+  type TodoItem = { id: number; text: string; priority: Priority; category: Category; done: boolean; note: string; createdAt: string };
+
+  const [items, setItems] = React.useState<TodoItem[]>(() => {
+    try { return JSON.parse(localStorage.getItem('dc_todos') || '[]'); } catch { return []; }
+  });
+  const [form, setForm] = React.useState({ text: '', priority: 'medium' as Priority, category: 'general' as Category, note: '' });
+  const [showForm, setShowForm] = React.useState(false);
+  const [filterCat, setFilterCat] = React.useState<string>('all');
+  const [filterDone, setFilterDone] = React.useState<string>('all');
+
+  const save = (list: TodoItem[]) => { localStorage.setItem('dc_todos', JSON.stringify(list)); setItems(list); };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    save([{ id: Date.now(), ...form, done: false, createdAt: new Date().toISOString() }, ...items]);
+    setForm({ text: '', priority: 'medium', category: 'general', note: '' });
+    setShowForm(false);
+  };
+
+  const toggle = (id: number) => save(items.map(i => i.id === id ? { ...i, done: !i.done } : i));
+  const del = (id: number) => save(items.filter(i => i.id !== id));
+
+  const priorityColors: Record<Priority, string> = {
+    low: 'bg-slate-100 text-slate-700 border-slate-200',
+    medium: 'bg-amber-100 text-amber-800 border-amber-200',
+    high: 'bg-rose-100 text-rose-800 border-rose-200',
+  };
+
+  const categoryEmoji: Record<Category, string> = {
+    general: '📋', practice: '💃', admin: '⚙️', performance: '🎭', finance: '💰'
+  };
+
+  const filtered = items.filter(i => {
+    if (filterCat !== 'all' && i.category !== filterCat) return false;
+    if (filterDone === 'pending' && i.done) return false;
+    if (filterDone === 'done' && !i.done) return false;
+    return true;
+  });
+
+  const stats = { total: items.length, done: items.filter(i => i.done).length, pending: items.filter(i => !i.done).length };
+
+  return (
+    <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-slate-900">Club Activities &amp; To-Do</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Track club tasks, practice activities, and administrative action items.</p>
+        </div>
+        <button onClick={() => setShowForm(s => !s)} className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#356AE6] text-white text-xs font-bold shadow-sm">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+          Add Task
+        </button>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        {[{ label: 'Total', value: stats.total, color: 'bg-slate-50 border-slate-200 text-slate-700' },
+          { label: 'Pending', value: stats.pending, color: 'bg-amber-50 border-amber-200 text-amber-800' },
+          { label: 'Done', value: stats.done, color: 'bg-emerald-50 border-emerald-200 text-emerald-800' }].map(s => (
+          <div key={s.label} className={`rounded-2xl border p-3 text-center ${s.color}`}>
+            <div className="text-2xl font-black">{s.value}</div>
+            <div className="text-[11px] font-bold uppercase tracking-wider mt-0.5">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <form onSubmit={handleSubmit} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">New Task</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <input required placeholder="Task description..." value={form.text} onChange={e => setForm(f => ({...f, text: e.target.value}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2" />
+            <select value={form.priority} onChange={e => setForm(f => ({...f, priority: e.target.value as Priority}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
+              <option value="low">🟢 Low Priority</option>
+              <option value="medium">🟡 Medium Priority</option>
+              <option value="high">🔴 High Priority</option>
+            </select>
+            <select value={form.category} onChange={e => setForm(f => ({...f, category: e.target.value as Category}))} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium">
+              <option value="general">📋 General</option>
+              <option value="practice">💃 Practice</option>
+              <option value="admin">⚙️ Admin</option>
+              <option value="performance">🎭 Performance</option>
+              <option value="finance">💰 Finance</option>
+            </select>
+            <textarea placeholder="Notes (optional)" value={form.note} onChange={e => setForm(f => ({...f, note: e.target.value}))} rows={2} className="px-3 py-2 rounded-xl bg-white border border-slate-200 text-xs font-medium sm:col-span-2 resize-none" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 bg-slate-200">Cancel</button>
+            <button type="submit" className="px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-[#356AE6]">Add Task</button>
+          </div>
+        </form>
+      )}
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 text-xs">
+        <select value={filterCat} onChange={e => setFilterCat(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
+          <option value="all">All Categories</option>
+          <option value="general">📋 General</option>
+          <option value="practice">💃 Practice</option>
+          <option value="admin">⚙️ Admin</option>
+          <option value="performance">🎭 Performance</option>
+          <option value="finance">💰 Finance</option>
+        </select>
+        <select value={filterDone} onChange={e => setFilterDone(e.target.value)} className="px-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200 font-medium text-slate-700">
+          <option value="all">All Status</option>
+          <option value="pending">Pending</option>
+          <option value="done">Completed</option>
+        </select>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 text-xs">No tasks here. Add a task above!</div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map(item => (
+            <div key={item.id} className={`p-3.5 rounded-2xl border flex items-start gap-3 transition-all ${item.done ? 'opacity-60 bg-slate-50 border-slate-100' : 'bg-white border-slate-200'}`}>
+              <button onClick={() => toggle(item.id)} className={`mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${item.done ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
+                {item.done && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`font-semibold text-sm text-slate-900 ${item.done ? 'line-through' : ''}`}>{item.text}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${priorityColors[item.priority]}`}>{item.priority}</span>
+                  <span className="text-[11px] text-slate-500">{categoryEmoji[item.category]} {item.category}</span>
+                </div>
+                {item.note && <p className="text-xs text-slate-500 mt-1">{item.note}</p>}
+              </div>
+              <button onClick={() => del(item.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 shrink-0">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>

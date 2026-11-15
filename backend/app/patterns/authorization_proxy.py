@@ -29,7 +29,8 @@ class IBookingService:
         db: Session,
         actor: User,
         booking_id: int,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        reason: Optional[str] = None
     ) -> Booking:
         pass
 
@@ -136,7 +137,8 @@ class BookingAuthorizationProxy(IBookingService):
         db: Session,
         actor: User,
         booking_id: int,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        reason: Optional[str] = None
     ) -> Booking:
         self._verify_active_user(actor)
 
@@ -179,7 +181,8 @@ class BookingAuthorizationProxy(IBookingService):
             db=db,
             actor=actor,
             booking_id=booking_id,
-            clock=clock
+            clock=clock,
+            reason=reason
         )
 
     def get_booking(

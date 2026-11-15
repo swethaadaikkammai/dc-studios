@@ -7,6 +7,7 @@ from app.models.booking_approval import BookingApproval
 from app.models.club_settings import ClubSettings
 from app.models.audit_log import AuditLog
 from app.models.outbox_event import OutboxEvent
+from app.models.password_reset_request import PasswordResetRequest
 
 __all__ = [
     "User",
@@ -18,4 +19,5 @@ __all__ = [
     "ClubSettings",
     "AuditLog",
     "OutboxEvent",
+    "PasswordResetRequest",
 ]

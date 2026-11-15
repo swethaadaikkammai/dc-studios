@@ -2,17 +2,27 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../services/api';
-import { Lock, User as UserIcon, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Lock, User as UserIcon, Eye, EyeOff, AlertCircle, HelpCircle, CheckCircle2, MessageSquare, ExternalLink, X } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const [usernameOrEmail, setUsernameOrEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Forgot Password Modal State
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [forgotUsername, setForgotUsername] = useState('');
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [isForgotSubmitting, setIsForgotSubmitting] = useState(false);
+  const [forgotSuccess, setForgotSuccess] = useState<string | null>(null);
+  const [forgotAdminUrl, setForgotAdminUrl] = useState<string | null>(null);
+  const [forgotAdminUrl2, setForgotAdminUrl2] = useState<string | null>(null);
+  const [forgotError, setForgotError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +30,7 @@ export const LoginPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const res = await api.login(usernameOrEmail, password);
+      const res = await api.login(username, password);
       login(res.access_token, res.user);
       navigate('/');
     } catch (err: any) {
@@ -31,6 +41,27 @@ export const LoginPage: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForgotPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setForgotError(null);
+    setForgotSuccess(null);
+    setIsForgotSubmitting(true);
+
+    try {
+      const res = await api.forgotPassword({
+        username: forgotUsername.trim(),
+        contact_phone: forgotPhone.trim() || undefined,
+      });
+      setForgotSuccess(res.message);
+      setForgotAdminUrl(res.admin_whatsapp_url || null);
+      setForgotAdminUrl2(res.admin_whatsapp_url_2 || null);
+    } catch (err: any) {
+      setForgotError(err?.message || 'Failed to submit password reset request. Verify your username.');
+    } finally {
+      setIsForgotSubmitting(false);
     }
   };
 
@@ -73,7 +104,7 @@ export const LoginPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Username or Email
+                Username
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
@@ -82,9 +113,9 @@ export const LoginPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  value={usernameOrEmail}
-                  onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder="admin or member@vitdance.ac.in"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="admin or team_head (e.g. mirage_head)"
                   className="w-full pl-9 pr-3 py-2.5 bg-slate-800/80 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#356AE6] focus:ring-1 focus:ring-[#356AE6] transition-colors"
                 />
               </div>
@@ -123,6 +154,22 @@ export const LoginPage: React.FC = () => {
             >
               {isLoading ? 'Signing In...' : 'Sign In'}
             </button>
+
+            {/* Forgot Password Link */}
+            <div className="text-center pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotUsername(username);
+                  setForgotError(null);
+                  setForgotSuccess(null);
+                  setIsForgotModalOpen(true);
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium cursor-pointer"
+              >
+                Forgot Password? Contact Admin
+              </button>
+            </div>
           </form>
 
           {/* Footer note */}
@@ -133,6 +180,126 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {isForgotModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+              <div className="flex items-center gap-2 text-white font-bold text-base">
+                <HelpCircle className="w-5 h-5 text-blue-400" />
+                Contact Admin for Password Reset
+              </div>
+              <button
+                onClick={() => setIsForgotModalOpen(false)}
+                className="text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Enter your username below. Submitting will immediately trigger an in-app and device alert to the Administrator to reset your credentials.
+            </p>
+
+            {forgotError && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-400 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{forgotError}</span>
+              </div>
+            )}
+
+            {forgotSuccess ? (
+              <div className="space-y-4 py-2">
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-xs text-emerald-400 space-y-2 text-center">
+                  <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                  <p className="font-bold text-sm">Request Sent to Administrator!</p>
+                  <p className="text-slate-300">{forgotSuccess}</p>
+                </div>
+
+                <div className="space-y-2">
+                  {forgotAdminUrl && (
+                    <a
+                      href={forgotAdminUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Send WhatsApp Message to Admin {forgotAdminUrl2 ? '(Primary)' : ''}
+                    </a>
+                  )}
+                  {forgotAdminUrl2 && (
+                    <a
+                      href={forgotAdminUrl2}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 transition-colors shadow-sm cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Send WhatsApp Message to Admin (Secondary)
+                    </a>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsForgotModalOpen(false)}
+                  className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleForgotPasswordSubmit} className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Your Username
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={forgotUsername}
+                    onChange={(e) => setForgotUsername(e.target.value)}
+                    placeholder="e.g. mirage_head"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">
+                    Your WhatsApp Phone (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    value={forgotPhone}
+                    onChange={(e) => setForgotPhone(e.target.value)}
+                    placeholder="+91 9876543210"
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isForgotSubmitting}
+                    className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-[#356AE6] hover:bg-blue-600 transition-colors disabled:opacity-50"
+                  >
+                    {isForgotSubmitting ? 'Notifying Admin...' : 'Notify Admin'}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

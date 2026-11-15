@@ -49,9 +49,6 @@ export const Navbar: React.FC = () => {
             </div>
             <div className="flex items-center gap-2 sm:gap-2.5">
               <span className="font-bold text-base sm:text-lg tracking-tight text-white leading-none">DC Studios</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 px-2 sm:px-2.5 py-1 rounded-full border border-blue-400/30 leading-none inline-flex items-center">
-                Booking Portal
-              </span>
             </div>
           </Link>
 

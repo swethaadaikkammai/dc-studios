@@ -13,7 +13,8 @@ import {
   XCircle,
   MessageSquare,
   Check,
-  Key
+  Key,
+  ExternalLink
 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 
@@ -33,6 +34,8 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
   const { user } = useAuth();
   const [isCancelling, setIsCancelling] = useState(false);
   const [showConfirmCancel, setShowConfirmCancel] = useState(false);
+  const [cancelReasonInput, setCancelReasonInput] = useState('');
+  const [cancellationWhatsappUrl, setCancellationWhatsappUrl] = useState<string | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [isSharing, setIsSharing] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -145,10 +148,14 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
     setIsCancelling(true);
     setCancelError(null);
     try {
-      await api.cancelBooking(booking.id);
-      setShowConfirmCancel(false);
-      if (onBookingCancelled) onBookingCancelled();
-      onClose();
+      const res = await api.cancelBooking(booking.id, cancelReasonInput.trim() || undefined);
+      if (res.cancellation_whatsapp_url) {
+        setCancellationWhatsappUrl(res.cancellation_whatsapp_url);
+      } else {
+        setShowConfirmCancel(false);
+        if (onBookingCancelled) onBookingCancelled();
+        onClose();
+      }
     } catch (err: any) {
       setCancelError(err?.message || 'Failed to cancel booking.');
     } finally {
@@ -222,6 +229,14 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
             </span>
           )}
         </div>
+
+        {/* Cancellation Reason if Cancelled */}
+        {booking.cancellation_reason && (
+          <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 space-y-1">
+            <span className="font-bold block text-rose-900">Cancellation Reason:</span>
+            <span>{booking.cancellation_reason}</span>
+          </div>
+        )}
 
         {/* Admin Keys Secured Override Badge */}
         {booking.purpose?.includes('Keys Secured') && (
@@ -380,6 +395,22 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
                 <p className="text-xs text-amber-800 font-medium">
                   Are you sure you want to cancel this booking? This will immediately release the studio slot for other teams.
                 </p>
+
+                {user?.role === 'ADMIN' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-amber-900 mb-1">
+                      Reason for Cancellation (Sent to Team Head):
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={cancelReasonInput}
+                      onChange={(e) => setCancelReasonInput(e.target.value)}
+                      placeholder="e.g., Studio maintenance, schedule conflict..."
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-amber-300 text-xs bg-white text-slate-800 focus:outline-none"
+                    />
+                  </div>
+                )}
+
                 <div className="flex gap-2">
                   <button
                     type="button"
@@ -397,6 +428,35 @@ export const StudioPassCard: React.FC<StudioPassCardProps> = ({
                     Back
                   </button>
                 </div>
+              </div>
+            )}
+
+            {cancellationWhatsappUrl && (
+              <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-200 space-y-3 text-center">
+                <div className="text-xs font-bold text-emerald-900">
+                  Booking Cancelled Successfully!
+                </div>
+                <a
+                  href={cancellationWhatsappUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Send Cancellation on WhatsApp to Team Head
+                </a>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCancellationWhatsappUrl(null);
+                    setShowConfirmCancel(false);
+                    if (onBookingCancelled) onBookingCancelled();
+                    onClose();
+                  }}
+                  className="text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                >
+                  Close Pass
+                </button>
               </div>
             )}
           </div>

@@ -20,6 +20,10 @@ class BookingCreate(BaseModel):
     keys_secured: Optional[bool] = False
 
 
+class BookingCancelRequest(BaseModel):
+    reason: Optional[str] = None
+
+
 class WhatsAppPassInfo(BaseModel):
     team_head_name: Optional[str] = None
     whatsapp_number: Optional[str] = None
@@ -44,6 +48,8 @@ class BookingRead(BaseModel):
     updated_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     cancelled_by: Optional[int] = None
+    cancellation_reason: Optional[str] = None
+    cancellation_whatsapp_url: Optional[str] = None
     team: Optional[TeamRead] = None
     room: Optional[RoomRead] = None
     creator: Optional[UserBrief] = None
@@ -54,3 +60,4 @@ class BookingRead(BaseModel):
 class BookingCancelResponse(BaseModel):
     message: str
     booking: BookingRead
+    cancellation_whatsapp_url: Optional[str] = None

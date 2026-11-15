@@ -8,7 +8,7 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
-    email = Column(String(100), unique=True, index=True, nullable=False)
+    email = Column(String(100), unique=True, index=True, nullable=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(30), nullable=False)  # "ADMIN", "BOARD_MEMBER", "TEAM_HEAD"
     team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)

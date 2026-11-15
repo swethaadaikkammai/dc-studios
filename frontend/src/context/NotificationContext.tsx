@@ -2,12 +2,14 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { useAuth } from './AuthContext';
 import { api } from '../services/api';
 import { BookingApproval, Booking } from '../types';
-import { Bell, CheckCircle2, XCircle, CalendarPlus, ExternalLink, X, Volume2, ShieldAlert } from 'lucide-react';
+import { Bell, CheckCircle2, XCircle, CalendarPlus, ExternalLink, X, Volume2, ShieldAlert, Key } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
+import { Capacitor } from '@capacitor/core';
+import { LocalNotifications } from '@capacitor/local-notifications';
 
 export interface AppNotification {
   id: string;
-  type: 'REQUEST_SUBMITTED' | 'BOOKING_APPROVED' | 'BOOKING_REJECTED' | 'SESSION_BOOKED' | 'TEST';
+  type: 'REQUEST_SUBMITTED' | 'BOOKING_APPROVED' | 'BOOKING_REJECTED' | 'SESSION_BOOKED' | 'PASSWORD_RESET' | 'BOOKING_CANCELLED' | 'TEST';
   title: string;
   message: string;
   actionUrl?: string;
@@ -96,6 +98,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const initialSyncRef = useRef<boolean>(false);
   const knownApprovalStatusesRef = useRef<Map<number, string>>(new Map());
   const knownBookingIdsRef = useRef<Set<number>>(new Set());
+  const knownPasswordResetIdsRef = useRef<Set<number>>(new Set());
+  const knownTeamBookingStatusesRef = useRef<Map<number, string>>(new Map());
   const toastTimeoutRef = useRef<any>(null);
 
   // Save notifications to localStorage
@@ -107,8 +111,52 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [notifications]);
 
-  // Request browser notification permission
+  // Check initial permission status and register action listeners on native Capacitor
+  useEffect(() => {
+    if (Capacitor.isNativePlatform()) {
+      LocalNotifications.checkPermissions()
+        .then((status) => {
+          if (status.display === 'granted') {
+            setPermission('granted');
+          }
+        })
+        .catch(() => {});
+
+      const sub = LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+        const actionUrl = action.notification.extra?.actionUrl;
+        if (actionUrl) {
+          window.location.href = actionUrl;
+        }
+      });
+
+      return () => {
+        sub.then((s) => s.remove()).catch(() => {});
+      };
+    }
+  }, []);
+
+  // Request browser / device notification permission
   const requestPermission = async (): Promise<boolean> => {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const perm = await LocalNotifications.requestPermissions();
+        if (perm.display === 'granted') {
+          setPermission('granted');
+          playNotificationChime();
+          dispatchAppNotification({
+            type: 'TEST',
+            title: 'Device Notifications Activated',
+            message: 'Real-time native alerts enabled for your phone. You will receive notifications for studio bookings and approvals.',
+          });
+          return true;
+        }
+        return false;
+      } catch (e) {
+        console.error('Failed to request native notification permission', e);
+        return false;
+      }
+    }
+
     if (typeof window === 'undefined' || !('Notification' in window)) {
       alert('Native browser notifications are not supported on this browser.');
       return false;
@@ -153,8 +201,28 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     }
 
-    // Trigger native browser notification if granted
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+    // Trigger native Android system tray notification if running on device
+    if (Capacitor.isNativePlatform()) {
+      try {
+        LocalNotifications.schedule({
+          notifications: [
+            {
+              id: Math.floor(Date.now() % 10000000),
+              title: newNotif.title,
+              body: newNotif.message,
+              sound: 'default',
+              smallIcon: 'ic_launcher_round',
+              extra: {
+                actionUrl: newNotif.actionUrl,
+              },
+            },
+          ],
+        }).catch((err) => console.warn('Native LocalNotifications schedule error:', err));
+      } catch (e) {
+        // ignore
+      }
+    } else if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      // Trigger native desktop browser notification if granted
       try {
         const native = new Notification(newNotif.title, {
           body: newNotif.message,
@@ -215,6 +283,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     initialSyncRef.current = false;
     knownApprovalStatusesRef.current.clear();
     knownBookingIdsRef.current.clear();
+    knownPasswordResetIdsRef.current.clear();
+    knownTeamBookingStatusesRef.current.clear();
   }, [user?.id, user?.role]);
 
   // Real-Time Poller
@@ -224,12 +294,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const pollUpdates = async () => {
       try {
         // -------------------------------------------------------------------
-        // 1. ADMIN USER: Monitor for new booking requests and direct bookings
+        // 1. ADMIN USER: Monitor for new booking requests, direct bookings & password resets
         // -------------------------------------------------------------------
         if (user.role === 'ADMIN') {
-          const [approvals, bookings] = await Promise.all([
+          const [approvals, bookings, passwordResets] = await Promise.all([
             api.getAllApprovalRequests().catch(() => []),
             api.getBookings().catch(() => []),
+            api.getPasswordResetRequests('PENDING').catch(() => []),
           ]);
 
           // Initial cold sync on first run
@@ -240,8 +311,25 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             bookings.forEach((b) => {
               knownBookingIdsRef.current.add(b.id);
             });
+            passwordResets.forEach((pr) => {
+              knownPasswordResetIdsRef.current.add(pr.id);
+            });
             initialSyncRef.current = true;
             return;
+          }
+
+          // Check for new password reset requests
+          for (const pr of passwordResets) {
+            if (!knownPasswordResetIdsRef.current.has(pr.id)) {
+              knownPasswordResetIdsRef.current.add(pr.id);
+              dispatchAppNotification({
+                type: 'PASSWORD_RESET',
+                title: 'Password Reset Request',
+                message: `@${pr.username} (${pr.team_name || 'Team Head'}) requested a password reset. Tap to resolve in Admin Console.`,
+                actionUrl: '/admin',
+                actionLabel: 'Resolve in Admin Console',
+              });
+            }
           }
 
           // Check for new booking requests submitted
@@ -282,18 +370,42 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
 
         // -------------------------------------------------------------------
-        // 2. TEAM HEAD USER: Monitor if their request was APPROVED or REJECTED
+        // 2. TEAM HEAD USER: Monitor if their request was APPROVED or REJECTED / CANCELLED
         // -------------------------------------------------------------------
         if (user.role === 'TEAM_HEAD') {
-          const myRequests = await api.getMyApprovalRequests().catch(() => []);
+          const [myRequests, teamBookings] = await Promise.all([
+            api.getMyApprovalRequests().catch(() => []),
+            user.team_id ? api.getBookings({ team_id: user.team_id }).catch(() => []) : Promise.resolve([]),
+          ]);
 
           // Initial cold sync on first run
           if (!initialSyncRef.current) {
             myRequests.forEach((req) => {
               knownApprovalStatusesRef.current.set(req.id, req.approval_status);
             });
+            teamBookings.forEach((b) => {
+              knownTeamBookingStatusesRef.current.set(b.id, b.status);
+            });
             initialSyncRef.current = true;
             return;
+          }
+
+          // Check for admin cancellation of confirmed bookings
+          for (const b of teamBookings) {
+            const previousStatus = knownTeamBookingStatusesRef.current.get(b.id);
+            if (previousStatus === 'CONFIRMED' && b.status === 'CANCELLED') {
+              knownTeamBookingStatusesRef.current.set(b.id, 'CANCELLED');
+              const reasonText = b.cancellation_reason ? `Reason: ${b.cancellation_reason}` : 'Cancelled by Administrator.';
+              dispatchAppNotification({
+                type: 'BOOKING_CANCELLED',
+                title: 'Studio Booking Cancelled by Admin',
+                message: `Booking #${b.id} for ${b.team?.name || 'your team'} was cancelled. ${reasonText}`,
+                actionUrl: '/my-team',
+                actionLabel: 'View Bookings',
+              });
+            } else if (!previousStatus) {
+              knownTeamBookingStatusesRef.current.set(b.id, b.status);
+            }
           }
 
           for (const req of myRequests) {
@@ -367,10 +479,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md transition-all ${
               activeToast.type === 'BOOKING_APPROVED'
                 ? 'bg-emerald-950/95 text-white border-emerald-500/40'
-                : activeToast.type === 'BOOKING_REJECTED'
+                : activeToast.type === 'BOOKING_REJECTED' || activeToast.type === 'BOOKING_CANCELLED'
                 ? 'bg-rose-950/95 text-white border-rose-500/40'
                 : activeToast.type === 'REQUEST_SUBMITTED'
                 ? 'bg-blue-950/95 text-white border-blue-500/40'
+                : activeToast.type === 'PASSWORD_RESET'
+                ? 'bg-amber-950/95 text-white border-amber-500/40'
                 : 'bg-slate-900/95 text-white border-slate-700/60'
             }`}
           >
@@ -379,16 +493,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
                 className={`p-2 rounded-xl shrink-0 ${
                   activeToast.type === 'BOOKING_APPROVED'
                     ? 'bg-emerald-500/20 text-emerald-400'
-                    : activeToast.type === 'BOOKING_REJECTED'
+                    : activeToast.type === 'BOOKING_REJECTED' || activeToast.type === 'BOOKING_CANCELLED'
                     ? 'bg-rose-500/20 text-rose-400'
                     : activeToast.type === 'REQUEST_SUBMITTED'
                     ? 'bg-blue-500/20 text-blue-400'
+                    : activeToast.type === 'PASSWORD_RESET'
+                    ? 'bg-amber-500/20 text-amber-400'
                     : 'bg-slate-700/50 text-slate-300'
                 }`}
               >
                 {activeToast.type === 'BOOKING_APPROVED' && <CheckCircle2 className="w-5 h-5" />}
-                {activeToast.type === 'BOOKING_REJECTED' && <XCircle className="w-5 h-5" />}
+                {(activeToast.type === 'BOOKING_REJECTED' || activeToast.type === 'BOOKING_CANCELLED') && (
+                  <XCircle className="w-5 h-5" />
+                )}
                 {activeToast.type === 'REQUEST_SUBMITTED' && <CalendarPlus className="w-5 h-5" />}
+                {activeToast.type === 'PASSWORD_RESET' && <Key className="w-5 h-5" />}
                 {(activeToast.type === 'SESSION_BOOKED' || activeToast.type === 'TEST') && (
                   <Bell className="w-5 h-5" />
                 )}

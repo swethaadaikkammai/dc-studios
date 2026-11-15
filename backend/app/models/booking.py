@@ -18,6 +18,8 @@ class Booking(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     cancelled_at = Column(DateTime(timezone=True), nullable=True)
     cancelled_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    cancellation_reason = Column(Text, nullable=True)
+    cancellation_whatsapp_url = Column(Text, nullable=True)
 
     # Relationships
     team = relationship("Team", back_populates="bookings")

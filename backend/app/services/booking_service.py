@@ -1,10 +1,13 @@
 from datetime import datetime
 from typing import List, Optional
+import re
+from urllib.parse import quote
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 import pytz
 
 from app.models.booking import Booking
+from app.models.booking_approval import BookingApproval
 from app.models.room import Room
 from app.models.team import Team
 from app.models.user import User
@@ -143,7 +146,8 @@ class BookingService(IBookingService):
         db: Session,
         actor: User,
         booking_id: int,
-        clock: Optional[datetime] = None
+        clock: Optional[datetime] = None,
+        reason: Optional[str] = None
     ) -> Booking:
         server_now = clock or get_authoritative_server_now()
         server_now = ensure_campus_timezone(server_now)
@@ -164,6 +168,50 @@ class BookingService(IBookingService):
             cutoff_minutes=cfg.cancellation_cutoff_minutes
         )
 
+        booking.cancellation_reason = reason
+        booking.cancelled_by = actor.id
+
+        # Cleanly update linked approval if any exists
+        approval = db.query(BookingApproval).filter(BookingApproval.booking_id == booking.id).first()
+        if approval:
+            approval.approval_status = "CANCELLED"
+            approval.rejection_reason = reason or "Cancelled by Administrator"
+
+        # Generate WhatsApp dispatch URL addressed to Team Head if cancelled by Admin
+        if actor.role == "ADMIN":
+            team_head = (
+                db.query(User).filter(User.team_id == booking.team_id, User.role == "TEAM_HEAD").first() or
+                (db.query(User).filter(User.id == booking.created_by).first() if booking.created_by != actor.id else None)
+            )
+            phone = team_head.whatsapp_number if team_head and team_head.whatsapp_number else None
+            # Fallback to any active phone or default admin notification contact if none
+            if not phone and team_head and team_head.whatsapp_number_2:
+                phone = team_head.whatsapp_number_2
+            if not phone:
+                phone = "917010734009"  # Default contact if team head has no phone on record
+            if phone:
+                clean_digits = re.sub(r'[^0-9]', '', str(phone))
+                if len(clean_digits) == 10:
+                    clean_digits = "91" + clean_digits
+                team_title = booking.team.name if booking.team else f"Team #{booking.team_id}"
+                room_title = booking.room.name if booking.room else f"Room #{booking.room_id}"
+                start_str = booking.start_at.strftime("%d %b %Y, %I:%M %p")
+                end_str = booking.end_at.strftime("%I:%M %p")
+                reason_str = reason or "Administrative slot adjustment"
+                msg = (
+                    f"*DC STUDIOS — BOOKING CANCELLED*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"*Booking ID:* #{booking.id}\n"
+                    f"*Team:* {team_title}\n"
+                    f"*Studio:* {room_title}\n"
+                    f"*Slot:* {start_str} – {end_str} IST\n"
+                    f"*Cancellation Reason:* {reason_str}\n"
+                    f"*Cancelled By:* Administrator (@{actor.username})\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"This studio slot has been released back to availability."
+                )
+                booking.cancellation_whatsapp_url = f"https://api.whatsapp.com/send?phone={clean_digits}&text={quote(msg)}"
+
         # Transactionally notify observers (Audit and Availability refresh)
         event = BookingEvent(
             event_type="BOOKING_CANCELLED",
@@ -176,7 +224,8 @@ class BookingService(IBookingService):
                 "cancelled_by": actor.username,
                 "cancelled_at": server_now.isoformat(),
                 "start_at": booking.start_at.isoformat(),
-                "end_at": booking.end_at.isoformat()
+                "end_at": booking.end_at.isoformat(),
+                "reason": reason
             }
         )
         booking_publisher.notify(event, db)

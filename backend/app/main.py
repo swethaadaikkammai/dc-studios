@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.db.session import SessionLocal, engine
+from app.db.session import SessionLocal, engine, Base
 from app.patterns.club_config_singleton import ClubConfig
 from app.services.reminder_service import ReminderService
 from app.api import auth, bookings, teams, rooms, admin, approvals
@@ -43,19 +43,52 @@ async def periodic_reminder_scheduler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Startup: Ensure all database tables exist
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("[Lifespan] Database tables verified/created.")
+    except Exception as e:
+        print(f"[Lifespan] Warning: create_all error: {e}")
+
     # Startup: Load latest club settings into process-level ClubConfig singleton
     db = SessionLocal()
     try:
         ClubConfig.get_instance().reload(db)
         print("[Lifespan] Loaded active ClubConfig settings into memory.")
-        # Ensure created_at_ms exists on booking_approvals for millisecond race resolution
+
+        # Migrate SQLite / Postgres columns if missing
         with engine.connect() as conn:
-            res = conn.execute(text("PRAGMA table_info(booking_approvals)")).fetchall()
-            cols = [r[1] for r in res]
-            if "created_at_ms" not in cols and len(cols) > 0:
-                conn.execute(text("ALTER TABLE booking_approvals ADD COLUMN created_at_ms BIGINT"))
-                conn.commit()
-                print("[Lifespan] Added created_at_ms column to booking_approvals table.")
+            # 1. booking_approvals.created_at_ms
+            try:
+                if engine.dialect.name == "sqlite":
+                    res = conn.execute(text("PRAGMA table_info(booking_approvals)")).fetchall()
+                    cols = [r[1] for r in res]
+                    if "created_at_ms" not in cols and len(cols) > 0:
+                        conn.execute(text("ALTER TABLE booking_approvals ADD COLUMN created_at_ms BIGINT"))
+                        conn.commit()
+                else:
+                    conn.execute(text("ALTER TABLE booking_approvals ADD COLUMN IF NOT EXISTS created_at_ms BIGINT"))
+                    conn.commit()
+            except Exception as e:
+                print(f"[Lifespan] created_at_ms migration note: {e}")
+
+            # 2. bookings.cancellation_reason & cancellation_whatsapp_url
+            try:
+                if engine.dialect.name == "sqlite":
+                    res = conn.execute(text("PRAGMA table_info(bookings)")).fetchall()
+                    cols = [r[1] for r in res]
+                    if "cancellation_reason" not in cols and len(cols) > 0:
+                        conn.execute(text("ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT"))
+                        conn.commit()
+                    if "cancellation_whatsapp_url" not in cols and len(cols) > 0:
+                        conn.execute(text("ALTER TABLE bookings ADD COLUMN cancellation_whatsapp_url TEXT"))
+                        conn.commit()
+                else:
+                    conn.execute(text("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_reason TEXT"))
+                    conn.execute(text("ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancellation_whatsapp_url TEXT"))
+                    conn.commit()
+            except Exception as e:
+                print(f"[Lifespan] bookings cancellation columns migration note: {e}")
     except Exception as e:
         print(f"[Lifespan] Warning: Failed to pre-load settings: {e}")
     finally:
@@ -86,7 +119,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"^https?://.*",
+    allow_origin_regex=r"^(https?|capacitor)://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

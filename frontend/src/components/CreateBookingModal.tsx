@@ -321,7 +321,7 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <a
               href={
                 submittedApproval.admin_whatsapp_url ||
@@ -341,10 +341,10 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
               }
               target="_blank"
               rel="noreferrer"
-              className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-sm cursor-pointer"
+              className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors shadow-md shadow-emerald-600/20 cursor-pointer"
             >
               <ExternalLink className="w-4 h-4" />
-              Follow up with Admin {submittedApproval.admin_whatsapp_url_2 ? '(Primary Contact)' : 'on WhatsApp'}
+              Send WhatsApp Message to Admin {submittedApproval.admin_whatsapp_url_2 ? '(Primary)' : ''}
             </a>
 
             {submittedApproval.admin_whatsapp_url_2 && (
@@ -352,10 +352,10 @@ export const CreateBookingModal: React.FC<CreateBookingModalProps> = ({
                 href={submittedApproval.admin_whatsapp_url_2}
                 target="_blank"
                 rel="noreferrer"
-                className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-sm cursor-pointer"
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-sm font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 transition-colors shadow-sm cursor-pointer"
               >
                 <ExternalLink className="w-4 h-4" />
-                Follow up with Admin (Secondary Contact)
+                Send WhatsApp Message to Admin (Secondary)
               </a>
             )}
           </div>

@@ -20,6 +20,7 @@ from app.schemas.reminder import (
     CheckRemindersResponse,
     AdminPhoneUpdate
 )
+from app.schemas.password_reset import PasswordResetRequestRead, ResolvePasswordResetRequest
 from app.services.admin_service import AdminService
 from app.services.reminder_service import ReminderService
 from app.core.exceptions import BookingException, RoomLimitExceededException
@@ -267,3 +268,59 @@ def update_admin_reminder_phone(
         "whatsapp_number": admin_user.whatsapp_number,
         "whatsapp_number_2": admin_user.whatsapp_number_2
     }
+
+
+# ---------------------------------------------------------------------- #
+#  Admin: Bookings Deletion                                               #
+# ---------------------------------------------------------------------- #
+@router.delete("/bookings/{booking_id}")
+def delete_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Permanently deletes a studio booking from the database, releasing the slot
+    and decoupling any associated approval requests.
+    """
+    try:
+        return AdminService.delete_booking(db=db, actor=admin_user, booking_id=booking_id)
+    except BookingException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+# ---------------------------------------------------------------------- #
+#  Admin: Password Reset Requests                                         #
+# ---------------------------------------------------------------------- #
+@router.get("/password-reset-requests", response_model=List[PasswordResetRequestRead])
+def list_password_reset_requests(
+    status: Optional[str] = Query(None, description="Filter by status: PENDING or RESOLVED"),
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Admin: lists member password reset requests to resolve forgotten passwords.
+    """
+    return AdminService.list_password_reset_requests(db=db, status_filter=status)
+
+
+@router.post("/password-reset-requests/{request_id}/resolve")
+def resolve_password_reset_request(
+    request_id: int,
+    payload: ResolvePasswordResetRequest,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_role(["ADMIN"]))
+):
+    """
+    Admin: resolves a password reset request and optionally sets a new password.
+    """
+    try:
+        return AdminService.resolve_password_reset_request(
+            db=db,
+            actor=admin_user,
+            request_id=request_id,
+            new_password=payload.new_password,
+            notes=payload.notes
+        )
+    except BookingException as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)

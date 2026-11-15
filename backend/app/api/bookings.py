@@ -8,7 +8,7 @@ from app.core.dependencies import get_current_user, get_booking_proxy
 from app.models.user import User
 from app.models.booking import Booking
 from app.models.club_settings import ClubSettings
-from app.schemas.booking import BookingCreate, BookingRead, BookingCancelResponse, WhatsAppPassInfo
+from app.schemas.booking import BookingCreate, BookingRead, BookingCancelResponse, BookingCancelRequest, WhatsAppPassInfo
 from app.schemas.availability import AvailabilityResponse
 from app.schemas.club_settings import ClubSettingsRead
 from app.patterns.authorization_proxy import BookingAuthorizationProxy
@@ -112,6 +112,7 @@ def is_admin_or_events_head(user: Optional[User]) -> bool:
 @router.post("/{booking_id}/cancel", response_model=BookingCancelResponse)
 def cancel_booking(
     booking_id: int,
+    payload: Optional[BookingCancelRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     proxy: BookingAuthorizationProxy = Depends(get_booking_proxy)
@@ -119,16 +120,20 @@ def cancel_booking(
     """
     Cancels an existing booking through the BookingAuthorizationProxy and State pattern.
     Team Heads can only cancel bookings of their own team.
+    Admins can cancel any booking anytime with a mandatory or optional reason.
     """
     try:
+        reason = payload.reason if payload else None
         booking = proxy.cancel_booking(
             db=db,
             actor=current_user,
-            booking_id=booking_id
+            booking_id=booking_id,
+            reason=reason
         )
         return BookingCancelResponse(
             message="Booking successfully cancelled. The studio slot has been released.",
-            booking=BookingRead.model_validate(booking)
+            booking=BookingRead.model_validate(booking),
+            cancellation_whatsapp_url=booking.cancellation_whatsapp_url
         )
     except BookingException as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

@@ -17,7 +17,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    // Background pre-warm ping to Render to reduce cold start latency
+    fetch('https://dc-studios.onrender.com/health').catch(() => {});
+
     async function loadUser() {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         const res = await api.getMe();
         setUser(res.user);

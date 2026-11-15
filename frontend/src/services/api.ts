@@ -9,10 +9,11 @@ import {
   BoardPermission,
   ReminderStatusResponse,
   ReminderDispatchRecord,
-  BookingApproval
+  BookingApproval,
+  PasswordResetRequest
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://dc-studios.onrender.com/api';
 
 class ApiError extends Error {
   status: number;
@@ -36,11 +37,20 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers.set('Authorization', `Bearer ${token}`);
   }
 
-  const response = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-    credentials: 'include', // Includes HTTP-only session cookies
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include', // Includes HTTP-only session cookies
+    });
+  } catch (netErr: any) {
+    throw new ApiError(
+      'Server is waking up or temporarily unreachable. If on Render free tier, please wait 30-45 seconds for cold start and try again.',
+      0,
+      { isNetworkError: true }
+    );
+  }
 
   if (response.status === 204) {
     return {} as T;
@@ -96,9 +106,10 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  cancelBooking: (id: number) =>
-    request<{ message: string; booking: Booking }>(`/bookings/${id}/cancel`, {
+  cancelBooking: (id: number, reason?: string) =>
+    request<{ message: string; booking: Booking; cancellation_whatsapp_url?: string }>(`/bookings/${id}/cancel`, {
       method: 'POST',
+      body: reason ? JSON.stringify({ reason }) : undefined,
     }),
 
   // Availability & Settings
@@ -115,10 +126,15 @@ export const api = {
   // Administration
   getUsers: () => request<User[]>('/admin/users'),
 
-  createUser: (payload: { username: string; email: string; password: string; role: string; team_id?: number | null; whatsapp_number?: string; whatsapp_number_2?: string; is_active?: boolean }) =>
+  createUser: (payload: { username: string; email?: string; password: string; role: string; team_id?: number | null; whatsapp_number?: string; whatsapp_number_2?: string; is_active?: boolean }) =>
     request<User>('/admin/users', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  deleteBookingAdmin: (id: number) =>
+    request<{ message: string; booking_id: number }>(`/admin/bookings/${id}`, {
+      method: 'DELETE',
     }),
 
   updateUser: (
@@ -215,6 +231,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ action: 'REJECT', rejection_reason: reason }),
     }),
+
+  // ── Password Reset (Team Head ↔ Admin) ──
+  forgotPassword: (payload: { username: string; contact_phone?: string; note?: string }) =>
+    request<{ message: string; request_id: number; admin_whatsapp_url?: string; admin_whatsapp_url_2?: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  getPasswordResetRequests: (status?: string) => {
+    const qs = status ? `?status=${status}` : '';
+    return request<PasswordResetRequest[]>(`/admin/password-reset-requests${qs}`);
+  },
+
+  resolvePasswordResetRequest: (id: number, payload: { new_password?: string; notes?: string }) =>
+    request<{ message: string; request_id: number; username: string; password_updated: boolean }>(
+      `/admin/password-reset-requests/${id}/resolve`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    ),
 };
 
 export { ApiError };

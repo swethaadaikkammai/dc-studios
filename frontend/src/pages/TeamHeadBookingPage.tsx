@@ -190,10 +190,10 @@ export const TeamHeadBookingPage: React.FC = () => {
                         }
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-emerald-600 hover:text-emerald-700 font-bold text-[11px]"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 font-bold text-[11px] transition-colors"
                       >
                         <ExternalLink className="w-3 h-3" />
-                        Follow up with Admin {req.admin_whatsapp_url_2 ? '(Primary)' : 'on WhatsApp'}
+                        Send WhatsApp to Admin {req.admin_whatsapp_url_2 ? '(Primary)' : ''}
                       </a>
 
                       {req.admin_whatsapp_url_2 && (
@@ -201,10 +201,10 @@ export const TeamHeadBookingPage: React.FC = () => {
                           href={req.admin_whatsapp_url_2}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 font-bold text-[11px]"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100 font-bold text-[11px] transition-colors"
                         >
                           <ExternalLink className="w-3 h-3" />
-                          Follow up with Admin (Secondary)
+                          Send WhatsApp to Admin (Secondary)
                         </a>
                       )}
                     </div>

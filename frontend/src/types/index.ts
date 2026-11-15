@@ -25,7 +25,7 @@ export interface BoardPermission {
 export interface User {
   id: number;
   username: string;
-  email: string;
+  email?: string | null;
   role: UserRole;
   team_id: number | null;
   team?: { id: number; name: string } | null;
@@ -63,6 +63,8 @@ export interface Booking {
   updated_at?: string | null;
   cancelled_at?: string | null;
   cancelled_by?: number | null;
+  cancellation_reason?: string | null;
+  cancellation_whatsapp_url?: string | null;
   team?: Team | null;
   room?: Room | null;
   creator?: { id: number; username: string } | null;
@@ -91,6 +93,18 @@ export interface AvailabilityResponse {
   slot_interval_minutes: number;
   maximum_duration_minutes: number;
   slots: AvailabilitySlot[];
+}
+
+export interface PasswordResetRequest {
+  id: number;
+  username: string;
+  team_name?: string | null;
+  whatsapp_number?: string | null;
+  status: 'PENDING' | 'RESOLVED';
+  created_at: string;
+  resolved_at?: string | null;
+  resolved_by?: number | null;
+  admin_notes?: string | null;
 }
 
 export interface ClubSettings {

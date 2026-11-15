@@ -4,9 +4,12 @@ from app.models.user import User
 from app.models.team import Team
 from app.models.room import Room
 from app.models.booking import Booking
+from app.models.booking_approval import BookingApproval
 from app.models.board_permission import BoardTeamPermission
 from app.models.club_settings import ClubSettings
 from app.models.audit_log import AuditLog
+from app.models.password_reset_request import PasswordResetRequest
+from app.core.time_utils import get_ist_now
 from app.core.security import hash_password
 from app.core.exceptions import RoomLimitExceededException, BookingException
 from app.patterns.club_config_singleton import ClubConfig
@@ -25,21 +28,22 @@ class AdminService:
         db: Session,
         actor: User,
         username: str,
-        email: str,
         password: str,
         role: str,
+        email: Optional[str] = None,
         team_id: Optional[int] = None,
         whatsapp_number: Optional[str] = None,
         whatsapp_number_2: Optional[str] = None,
         is_active: bool = True
     ) -> User:
-        existing = db.query(User).filter((User.username == username) | (User.email == email)).first()
+        user_email = email.strip() if email and email.strip() else f"{username.lower()}@dcstudios.local"
+        existing = db.query(User).filter((User.username == username) | (User.email == user_email)).first()
         if existing:
-            raise BookingException("Username or email already exists.", status_code=400)
+            raise BookingException("Username already exists.", status_code=400)
 
         user = User(
             username=username,
-            email=email,
+            email=user_email,
             password_hash=hash_password(password),
             role=role.upper(),
             team_id=team_id,
@@ -318,3 +322,97 @@ class AdminService:
     @classmethod
     def list_audit_logs(cls, db: Session, limit: int = 100, offset: int = 0) -> List[AuditLog]:
         return db.query(AuditLog).order_by(AuditLog.timestamp.desc()).offset(offset).limit(limit).all()
+
+    @classmethod
+    def delete_booking(cls, db: Session, actor: User, booking_id: int) -> Dict[str, Any]:
+        """Admin permanently deletes a booking, releasing the slot and auditing the action."""
+        booking = db.query(Booking).filter(Booking.id == booking_id).first()
+        if not booking:
+            raise BookingException(f"Booking #{booking_id} does not exist.", status_code=404)
+
+        team_name = booking.team.name if booking.team else f"Team #{booking.team_id}"
+        room_name = booking.room.name if booking.room else f"Room #{booking.room_id}"
+        time_str = f"{booking.start_at} - {booking.end_at}"
+
+        # Cleanly decouple linked approvals
+        approvals = db.query(BookingApproval).filter(BookingApproval.booking_id == booking_id).all()
+        for apprv in approvals:
+            apprv.booking_id = None
+            apprv.approval_status = "CANCELLED"
+            apprv.rejection_reason = "Booking deleted by Administrator"
+
+        # Flush approval changes first so FK constraints are satisfied before deletion
+        db.flush()
+
+        # Delete the booking row
+        db.delete(booking)
+
+        # Audit the deletion
+        db.add(AuditLog(
+            actor_id=actor.id,
+            action="DELETE_BOOKING",
+            entity_type="BOOKING",
+            entity_id=booking_id,
+            details=f"Admin {actor.username} permanently deleted Booking #{booking_id} for {team_name} in {room_name} ({time_str})"
+        ))
+        db.commit()
+
+        return {
+            "message": f"Booking #{booking_id} permanently deleted. Studio slot released.",
+            "booking_id": booking_id
+        }
+
+    @classmethod
+    def list_password_reset_requests(
+        cls,
+        db: Session,
+        status_filter: Optional[str] = None
+    ) -> List[PasswordResetRequest]:
+        q = db.query(PasswordResetRequest)
+        if status_filter:
+            q = q.filter(PasswordResetRequest.status == status_filter.upper())
+        return q.order_by(
+            PasswordResetRequest.status.asc(),
+            PasswordResetRequest.created_at.desc()
+        ).all()
+
+    @classmethod
+    def resolve_password_reset_request(
+        cls,
+        db: Session,
+        actor: User,
+        request_id: int,
+        new_password: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        req = db.query(PasswordResetRequest).filter(PasswordResetRequest.id == request_id).first()
+        if not req:
+            raise BookingException(f"Password reset request #{request_id} not found.", status_code=404)
+
+        user = db.query(User).filter(User.username == req.username).first()
+        if new_password and new_password.strip():
+            if not user:
+                raise BookingException(f"User account '@{req.username}' not found to update password.", status_code=404)
+            user.password_hash = hash_password(new_password.strip())
+
+        req.status = "RESOLVED"
+        req.resolved_at = get_ist_now()
+        req.resolved_by = actor.id
+        req.admin_notes = notes
+
+        db.add(AuditLog(
+            actor_id=actor.id,
+            action="RESOLVE_PASSWORD_RESET",
+            entity_type="USER",
+            entity_id=user.id if user else None,
+            details=f"Admin {actor.username} resolved password reset request #{request_id} for user @{req.username}"
+        ))
+        db.commit()
+        db.refresh(req)
+
+        return {
+            "message": f"Password reset request #{request_id} for @{req.username} resolved successfully.",
+            "request_id": req.id,
+            "username": req.username,
+            "password_updated": bool(new_password and new_password.strip())
+        }

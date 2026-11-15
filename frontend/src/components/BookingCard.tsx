@@ -86,6 +86,11 @@ export const BookingCard: React.FC<BookingCardProps> = ({ booking, onClick, show
         {booking.purpose && (
           <p className="text-xs text-slate-500 line-clamp-1 mt-0.5">{booking.purpose}</p>
         )}
+        {booking.cancellation_reason && (
+          <p className="text-xs text-rose-600 font-medium line-clamp-1 mt-1 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+            Cancelled: {booking.cancellation_reason}
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-y-1 gap-x-4 text-xs text-slate-600 pt-2 border-t border-slate-100">

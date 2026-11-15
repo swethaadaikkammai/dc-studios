@@ -15,6 +15,9 @@ def get_authoritative_server_now() -> datetime:
     return datetime.now(pytz.utc).astimezone(campus_tz)
 
 
+get_ist_now = get_authoritative_server_now
+
+
 def ensure_campus_timezone(dt: datetime) -> datetime:
     """Ensures a datetime object is localized to Asia/Kolkata."""
     if isinstance(dt, str):

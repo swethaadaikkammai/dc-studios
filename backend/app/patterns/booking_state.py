@@ -47,6 +47,10 @@ class ConfirmedState(BookingState):
         return "CONFIRMED"
 
     def can_cancel(self, booking: 'Booking', user: 'User', server_now: datetime, cutoff_minutes: int = 0) -> Tuple[bool, str]:
+        # Administrators can override and cancel any confirmed booking at any time
+        if user and getattr(user, 'role', None) == "ADMIN":
+            return True, ""
+
         now_tz = ensure_campus_timezone(server_now)
         end_tz = ensure_campus_timezone(booking.end_at)
         start_tz = ensure_campus_timezone(booking.start_at)
